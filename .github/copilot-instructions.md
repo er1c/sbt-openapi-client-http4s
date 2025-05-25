@@ -15,14 +15,14 @@ The overall project is divided into sequential steps. Clearly indicate the curre
   * Set up project structure including sbt build files, dependencies, and project layout
   * Prepare initial directory structure and necessary configuration
 
-### Step 2: Swagger Parsing Library *(In Progress)*
+### Step 2: Swagger Parsing Library *(Completed)*
 
 * **Tasks:**
 
   * Implement Swagger/OpenAPI specification parsing using `io.swagger.parser.v3:swagger-parser:2.1.28`
   * Verify correctness and completeness of parsed data with initial tests
 
-### Step 3: Code Generation Library
+### Step 3: Code Generation Library *(In Progress)*
 
 * **OpenAPI Spec:** `core/src/test/resources/specs/petstore_3.0.4.yml`
 * **Tasks:**

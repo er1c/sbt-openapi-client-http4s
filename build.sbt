@@ -29,9 +29,12 @@ lazy val core = project
   .settings(
     name := "openapi-client-core",
     commonSettings,
+    mainClass := Some("io.github.er1c.openapi.cli.Main"), // Add main class
     libraryDependencies ++= Seq(
       // Swagger/OpenAPI specification parser
       "io.swagger.parser.v3" % "swagger-parser" % "2.1.28",
+      // For command-line option parsing
+      "com.github.scopt" %% "scopt" % "4.1.0",
       // For JSON handling
       "io.circe" %% "circe-core" % "0.14.6",
       "io.circe" %% "circe-generic" % "0.14.6",
