@@ -35,9 +35,9 @@ case class ScalaType(
 )
 
 /**
- * A model generator that extracts Scala type information from an OpenAPI specification.
+ * A model parser that extracts Scala type information from an OpenAPI specification.
  */
-class ModelGenerator(val basePackage: String) {
+class ModelParser(val basePackage: String) {
 
   /**
    * Generate Scala type models from an OpenAPI specification.
@@ -206,3 +206,4 @@ class ModelGenerator(val basePackage: String) {
     imports.result()
   }
 }
+

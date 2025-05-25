@@ -53,9 +53,9 @@ case class ApiOperation(
 )
 
 /**
- * Generator for API operations from OpenAPI spec
+ * Parser for API operations from OpenAPI spec
  */
-class OperationGenerator(val basePackage: String) {
+class OperationParser(val basePackage: String) {
 
   /**
    * Generate API operations from an OpenAPI specification
