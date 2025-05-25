@@ -2,6 +2,7 @@ package io.github.er1c.openapi.generator
 
 import io.swagger.v3.oas.models.OpenAPI
 import io.swagger.v3.oas.models.media._
+
 import java.io.File
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
@@ -42,9 +43,9 @@ class ModelGenerator {
       case refSchema: Schema[_] if refSchema.get$ref != null =>
         val refName = refSchema.get$ref.substring(refSchema.get$ref.lastIndexOf('/') + 1)
         Option(openApi.getComponents)
-          .flatMap(c => Option(c.getSchemas))
-          .flatMap(schemas => Option(schemas.get(refName)))
-          .map(resolved => resolveSchema(resolved, openApi)) // Recursively resolve if the target is also a ref
+          .flatMap(c => Option(c.getSchemas).map(_.asScala.toMap)) // Convert to Scala Map
+          .flatMap(sMap => sMap.get(refName)) // Use get on Scala Map which returns Option
+          .map(resolved => resolveSchema(resolved, openApi)) // Recursively resolve
           .getOrElse {
             println(s"Warning: Could not resolve schema reference: ${refSchema.get$ref}")
             s
@@ -68,7 +69,7 @@ class ModelGenerator {
         generateEnum(scalaTypeName, s, imports)
       case s if s.getDiscriminator != null || (s.getOneOf != null && !s.getOneOf.isEmpty && s.getOneOf.asScala.exists(oneOfSchema => oneOfSchema.get$ref != null)) =>
         if (s.getDiscriminator != null) {
-          generateSealedTrait(scalaTypeName, s, modelsPackage, openApi, allSchemas, imports)
+          generateSealedTrait(scalaTypeName, s, imports)
         } else {
           println(s"Warning: Schema $scalaTypeName has oneOf but no discriminator. Generating as a simple case class or placeholder.")
           // Potentially generate a coproduct using Circe's auto coproduct derivation if all oneOf are simple types or refs
@@ -92,13 +93,13 @@ class ModelGenerator {
         generateArrayOpaqueType(scalaTypeName, s, modelsPackage, openApi, allSchemas, imports)
       case _: StringSchema => generatePrimitiveOpaqueType(scalaTypeName, "String", imports)
       case s: IntegerSchema =>
-        val (underlying, _fmt) = Option(s.getFormat) match {
+        val (underlying, _) = Option(s.getFormat) match { // _fmt changed to _
           case Some("int64") => ("Long", Some("int64"))
           case _             => ("Int", Option(s.getFormat))
         }
         generatePrimitiveOpaqueType(scalaTypeName, underlying, imports)
       case s: NumberSchema =>
-        val (underlying, _fmt) = Option(s.getFormat) match {
+        val (underlying, _) = Option(s.getFormat) match { // _fmt changed to _
           case Some("float")  => ("Float", Some("float"))
           case Some("double") => ("Double", Some("double"))
           case _              => ("BigDecimal", Option(s.getFormat))
@@ -129,15 +130,15 @@ class ModelGenerator {
     imports: ListBuffer[String]
   ): String = {
     val (encoderLine, decoderLine) = underlyingScalaType match {
-      case "String"     => (s"Encoder.encodeString.contramap(value)", s"Decoder.decodeString.map($typeName.apply)")
-      case "Int"        => (s"Encoder.encodeInt.contramap(value)", s"Decoder.decodeInt.map($typeName.apply)")
-      case "Long"       => (s"Encoder.encodeLong.contramap(value)", s"Decoder.decodeLong.map($typeName.apply)")
-      case "Boolean"    => (s"Encoder.encodeBoolean.contramap(value)", s"Decoder.decodeBoolean.map($typeName.apply)")
-      case "Float"      => (s"Encoder.encodeFloat.contramap(value)", s"Decoder.decodeFloat.map($typeName.apply)")
-      case "Double"     => (s"Encoder.encodeDouble.contramap(value)", s"Decoder.decodeDouble.map($typeName.apply)")
+      case "String"     => (s"Encoder.encodeString.contramap(_.value)", s"Decoder.decodeString.map($typeName.apply)")
+      case "Int"        => (s"Encoder.encodeInt.contramap(_.value)", s"Decoder.decodeInt.map($typeName.apply)")
+      case "Long"       => (s"Encoder.encodeLong.contramap(_.value)", s"Decoder.decodeLong.map($typeName.apply)")
+      case "Boolean"    => (s"Encoder.encodeBoolean.contramap(_.value)", s"Decoder.decodeBoolean.map($typeName.apply)")
+      case "Float"      => (s"Encoder.encodeFloat.contramap(_.value)", s"Decoder.decodeFloat.map($typeName.apply)")
+      case "Double"     => (s"Encoder.encodeDouble.contramap(_.value)", s"Decoder.decodeDouble.map($typeName.apply)")
       case "BigDecimal" =>
         imports += "import scala.math.BigDecimal"
-        (s"Encoder.encodeBigDecimal.contramap(value)", s"Decoder.decodeBigDecimal.map($typeName.apply)")
+        (s"Encoder.encodeBigDecimal.contramap(_.value)", s"Decoder.decodeBigDecimal.map($typeName.apply)")
       case "java.time.LocalDate" =>
         imports += "import java.time.LocalDate"
         imports += "import java.time.format.DateTimeFormatter"
@@ -157,7 +158,7 @@ class ModelGenerator {
          s"Decoder.decodeString.emapTry(str => Try(UUID.fromString(str)).map($typeName.apply).toEither.left.map(_.getMessage))")
       case "Array[Byte]" => // For BinarySchema, often Base64 encoded string in JSON
         imports += "import java.util.Base64"
-        (s"Encoder.encodeString.contramap(arr => Base64.getEncoder.encodeToString(arr))",
+        (s"Encoder.encodeString.contramap(bytes => Base64.getEncoder.encodeToString(bytes))",
          s"Decoder.decodeString.map(str => $typeName.apply(Base64.getDecoder.decode(str)))")
       case _ =>
         println(s"Warning: No specific Circe encoder/decoder for opaque type $typeName with underlying $underlyingScalaType.")
@@ -165,15 +166,16 @@ class ModelGenerator {
     }
 
     s"""opaque type $typeName = $underlyingScalaType
+
 object $typeName {
   def apply(value: $underlyingScalaType): $typeName = value
-  @SuppressWarnings(Array("org.wartremover.warts.OptionPartial"))
-  def unapply(t: $typeName): Option[$underlyingScalaType] = Some(t)
-  val value: $typeName => $underlyingScalaType = identity
 
-  implicit val encoder: Encoder[$typeName] = $encoderLine
-  implicit val decoder: Decoder[$typeName] = $decoderLine
-"""
+  extension (t: $typeName)
+    def value: $underlyingScalaType = t
+
+  given Encoder[$typeName] = $encoderLine
+  given Decoder[$typeName] = $decoderLine
+}"""
   }
 
   private def generateEnum(
@@ -185,8 +187,8 @@ object $typeName {
     imports += "import io.circe.Json"
 
     val cases = enumValues.map(v => s"  case ${ScalaNames.toTypeName(ScalaNames.sanitize(v))}").mkString("\n")
-    val encoderCases = enumValues.map(v => s"case ${ScalaNames.toTypeName(ScalaNames.sanitize(v))} => Json.fromString(\"${v}\")").mkString("\n    ")
-    val decoderCases = enumValues.map(v => s"case \"${v}\" => Right(${ScalaNames.toTypeName(ScalaNames.sanitize(v))})").mkString("\n      ")
+    val encoderCases = enumValues.map(v => s"""case ${ScalaNames.toTypeName(ScalaNames.sanitize(v))} => Json.fromString("${v}")""").mkString("\n    ")
+    val decoderCases = enumValues.map(v => s"""case "$v" => Right(${ScalaNames.toTypeName(ScalaNames.sanitize(v))})""").mkString("\n      ")
 
     s"""enum $typeName {
 $cases
@@ -201,7 +203,7 @@ object $typeName {
       case other => Left(s"Unexpected value for enum $typeName: $${other}")
     }
   }
-"""
+}"""
   }
 
   private def generateCaseClass(
@@ -219,7 +221,8 @@ object $typeName {
 
     val localPropertyDefs = localPropertiesMap.map { case (propName, propSchema) =>
       val isNullable = Option(propSchema.getNullable).exists(identity) || !requiredFields.contains(propName)
-      ScalaNames.toFieldName(ScalaNames.sanitize(propName)) -> (propSchema, isNullable)
+      // Corrected order: toFieldName then sanitize
+      ScalaNames.sanitize(ScalaNames.toFieldName(propName)) -> (propSchema, isNullable)
     }
 
     val allOfSchemas = Option(schema.getAllOf).map(_.asScala.toList).getOrElse(List.empty)
@@ -230,7 +233,8 @@ object $typeName {
           Option(objSchema.getProperties).map(_.asScala.toMap).getOrElse(Map.empty).map {
             case (propName, propSch) =>
               val isNullable = Option(propSch.getNullable).exists(identity) || !inheritedRequired.contains(propName)
-              ScalaNames.toFieldName(ScalaNames.sanitize(propName)) -> (propSch, isNullable)
+              // Corrected order: toFieldName then sanitize
+              ScalaNames.sanitize(ScalaNames.toFieldName(propName)) -> (propSch, isNullable)
           }
         case _ =>
           println(s"Warning: allOf for $typeName contained a non-object schema: ${Option(refSchema.get$ref).getOrElse("Inline schema")}")
@@ -240,25 +244,66 @@ object $typeName {
 
     val combinedProperties = allOfPropertiesMap ++ localPropertyDefs // Local properties override allOf
 
-    val fieldsStr = combinedProperties.map { case (fieldName, (propSchema, isNullable)) =>
-      val fieldType = getScalaType(propSchema, modelsPackage, openApi, allSchemas, isPropertyNullable = isNullable, imports)
-      val propDescription = Option(propSchema.getDescription).filter(_.nonEmpty).map(d => s"/** ${d.trim.replace("\n", " ").replace("*/", "* /")} */\n  ").getOrElse("  ")
+    // Generate opaque type wrappers for primitive fields
+    val fieldOpaqueTypes = ListBuffer[String]()
+    val fieldsWithTypes = combinedProperties.map { case (fieldName, (propSchema, isNullable)) =>
+      // Determine if the field should have an opaque type wrapper
+      // Always generate opaque types for primitive fields, regardless of nullability
+      val shouldGenerateOpaqueType = isPrimitive(propSchema)
+      val fieldType = if (shouldGenerateOpaqueType) {
+        // Get the underlying type (without Option wrapper)
+        val underlyingType = getScalaType(propSchema, modelsPackage, openApi, allSchemas, isPropertyNullable = false, imports)
+
+        // Create opaque type name: TypeName + FieldName
+        val opaqueTypeName = s"${typeName}${ScalaNames.toTypeName(fieldName)}"
+
+        // Generate the opaque type definition
+        fieldOpaqueTypes += generatePrimitiveOpaqueType(opaqueTypeName, underlyingType, imports)
+
+        // Use the opaque type in the field
+        if (isNullable) s"Option[$opaqueTypeName]" else opaqueTypeName
+      } else {
+        // Use standard type for complex types
+        getScalaType(propSchema, modelsPackage, openApi, allSchemas, isPropertyNullable = isNullable, imports)
+      }
+
+      val propDescription = Option(propSchema.getDescription).filter(_.nonEmpty)
+        .map(d => s"/** ${d.trim.replace("\n", " ").replace("*/", "* /")} */\n  ")
+        .getOrElse("  ")
+
+      (fieldName, fieldType, propDescription)
+    }
+
+    val fieldsStr = fieldsWithTypes.map { case (fieldName, fieldType, propDescription) =>
       s"$propDescription$fieldName: $fieldType"
     }.mkString(",\n")
 
     if (combinedProperties.isEmpty) {
       s"case class $typeName()\nobject $typeName {\n  implicit val encoder: Encoder[$typeName] = deriveEncoder[$typeName]\n  implicit val decoder: Decoder[$typeName] = deriveDecoder[$typeName]\n}"
     } else {
-      s"""case class $typeName(\n${fieldsStr.split("\n").map(l => if(l.trim.startsWith("/**")) l else "  " + l).mkString("\n")}\n)\nobject $typeName {\n  implicit val encoder: Encoder[$typeName] = deriveEncoder[$typeName]\n  implicit val decoder: Decoder[$typeName] = deriveDecoder[$typeName]\n}"""
+      val opaqueTypesStr = if (fieldOpaqueTypes.nonEmpty) fieldOpaqueTypes.mkString("\n\n") + "\n\n" else ""
+      s"""$opaqueTypesStr
+case class $typeName(\n${fieldsStr.split("\n").map(l => if(l.trim.startsWith("/**")) l else "  " + l).mkString("\n")}\n)\nobject $typeName {\n  implicit val encoder: Encoder[$typeName] = deriveEncoder[$typeName]\n  implicit val decoder: Decoder[$typeName] = deriveDecoder[$typeName]\n}"""
+    }
+  }
+
+  // Helper method to determine if a schema is for a primitive type
+  private def isPrimitive(schema: Schema[_]): Boolean = {
+    schema match {
+      case _: StringSchema => true
+      case _: IntegerSchema => true
+      case _: NumberSchema => true
+      case _: BooleanSchema => true
+      case _: DateSchema => true
+      case _: DateTimeSchema => true
+      case _: UUIDSchema => true
+      case _ => false
     }
   }
 
   private def generateSealedTrait(
     traitName: String,
     schema: Schema[_],
-    _modelsPackage: String, // Mark as unused
-    _openApi: OpenAPI, // Mark as unused
-    _allSchemas: Map[String, Schema[_]], // Mark as unused
     imports: ListBuffer[String]
   ): String = {
     imports += "import io.circe.syntax._"
@@ -286,7 +331,7 @@ object $typeName {
     }
 
     val decoderCases = concreteTypeInfos.map { case (discValue, concreteTypeName) =>
-      s"case \"${discValue}\" => c.as[$concreteTypeName]"
+      s"""case "$discValue" => c.as[$concreteTypeName]"""
     }.mkString("\n      ")
 
     val encoderCases = concreteTypeInfos.map { case (_, concreteTypeName) =>
@@ -308,7 +353,7 @@ object $traitName {
   implicit val encoder: Encoder[$traitName] = Encoder.instance {
     $encoderCases
   }
-"""
+}"""
   }
 
   private def generateArrayOpaqueType(
@@ -323,15 +368,16 @@ object $traitName {
     val itemTypeName = getScalaType(itemSchema, modelsPackage, openApi, allSchemas, isPropertyNullable = false, imports)
 
     s"""opaque type $typeName = List[$itemTypeName]
+
 object $typeName {
   def apply(value: List[$itemTypeName]): $typeName = value
-  @SuppressWarnings(Array("org.wartremover.warts.OptionPartial"))
-  def unapply(t: $typeName): Option[List[$itemTypeName]] = Some(t)
-  val value: $typeName => List[$itemTypeName] = identity
 
-  implicit def encoder(implicit itemEncoder: Encoder[$itemTypeName]): Encoder[$typeName] = Encoder.encodeList[$itemTypeName].contramap(value)
-  implicit def decoder(implicit itemDecoder: Decoder[$itemTypeName]): Decoder[$typeName] = Decoder.decodeList[$itemTypeName].map($typeName.apply)
-"""
+  extension (t: $typeName)
+    def value: List[$itemTypeName] = t
+
+  given (using itemEncoder: Encoder[$itemTypeName]): Encoder[$typeName] = Encoder.encodeList[$itemTypeName].contramap(_.value)
+  given (using itemDecoder: Decoder[$itemTypeName]): Decoder[$typeName] = Decoder.decodeList[$itemTypeName].map($typeName.apply)
+}"""
   }
 
  private def generateMapOpaqueType(
@@ -346,15 +392,16 @@ object $typeName {
     val valueTypeName = getScalaType(valueSchema, modelsPackage, openApi, allSchemas, isPropertyNullable = false, imports)
 
     s"""opaque type $typeName = Map[String, $valueTypeName]
+
 object $typeName {
   def apply(value: Map[String, $valueTypeName]): $typeName = value
-  @SuppressWarnings(Array("org.wartremover.warts.OptionPartial"))
-  def unapply(t: $typeName): Option[Map[String, $valueTypeName]] = Some(t)
-  val value: $typeName => Map[String, $valueTypeName] = identity
 
-  implicit def encoder(implicit valueEncoder: Encoder[$valueTypeName]): Encoder[$typeName] = Encoder.encodeMap[String, $valueTypeName].contramap(value)
-  implicit def decoder(implicit valueDecoder: Decoder[$valueTypeName]): Decoder[$typeName] = Decoder.decodeMap[String, $valueTypeName].map($typeName.apply)
-"""
+  extension (t: $typeName)
+    def value: Map[String, $valueTypeName] = t
+
+  given (using valueEncoder: Encoder[$valueTypeName]): Encoder[$typeName] = Encoder.encodeMap[String, $valueTypeName].contramap(_.value)
+  given (using valueDecoder: Decoder[$valueTypeName]): Decoder[$typeName] = Decoder.decodeMap[String, $valueTypeName].map($typeName.apply)
+}"""
   }
 
   def getScalaType(
@@ -417,4 +464,5 @@ object $typeName {
     if (isPropertyNullable) s"Option[$coreType]" else coreType
   }
 }
+
 

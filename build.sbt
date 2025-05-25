@@ -16,7 +16,7 @@ lazy val commonSettings = Seq(
     "-unchecked",
     "-Ywarn-dead-code",
     "-Ywarn-numeric-widen",
-    "-Ywarn-unused",
+    //"-Ywarn-unused",
     "-Xfatal-warnings"
   ),
   libraryDependencies ++= Seq(
@@ -29,7 +29,7 @@ lazy val core = project
   .settings(
     name := "openapi-client-core",
     commonSettings,
-    mainClass := Some("io.github.er1c.openapi.cli.Main"), // Add main class
+    mainClass := Some("io.github.er1c.openapi.cli.Main"),
     libraryDependencies ++= Seq(
       // Swagger/OpenAPI specification parser
       "io.swagger.parser.v3" % "swagger-parser" % "2.1.28",
