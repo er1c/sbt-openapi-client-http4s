@@ -1,0 +1,170 @@
+openapi: 3.0.3
+info:
+  title: cosmology
+  description: The API of everything
+  version: 1.0.0
+components:
+  schemas:
+    CelestialBody:
+      type: object
+      required:
+        - mass
+      properties:
+        mass:
+          type: number
+          format: double
+    ElipticalGalaxy:
+      type: object
+      required:
+        - eccentricity
+      properties:
+        eccentricity:
+          type: number
+          format: float
+        etcetra: {}
+    Galaxy:
+      oneOf:
+        - $ref: "#/components/schemas/ElipticalGalaxy"
+        - $ref: "#/components/schemas/SpiralGalaxy"
+    Moon:
+      type: object
+      required:
+        - uuid
+      properties:
+        uuid:
+          type: string
+          format: uuid
+      allOf:
+        - $ref: "#/components/schemas/CelestialBody"
+    SolarSystem:
+      type: object
+      required:
+        - galaxy
+      properties:
+        galaxy:
+          $ref: "#/components/schemas/Galaxy"
+    SpiralGalaxy:
+      type: object
+      required:
+        - armCount
+      properties:
+        uuid:
+          type: string
+          format: uuid
+        armCount:
+          type: integer
+          format: int32
+    StarTypeEnum:
+      type: string
+      enum:
+        - RedGiant
+        - WhiteDwarf
+        - Supernova
+    RedGiant:
+      type: object
+      title: RedGiant
+      required:
+        - type
+        - heliumFusion
+      properties:
+        heliumFusion:
+          type: string
+          enum:
+            - Inactive
+            - Ignition
+            - SteadyState
+            - ShellFusion
+            - Exhaustion
+        type:
+          $ref: '#/components/schemas/StarTypeEnum'
+    WhiteDwarf:
+      type: object
+      title: WhiteDwarf
+      required:
+        - type
+        - carbonInfusion
+      properties:
+        carbonInfusion:
+          type: string
+          enum:
+            - Inactive
+            - Ignition
+            - SteadyState
+            - ShellFusion
+            - Exhaustion
+        type:
+          $ref: '#/components/schemas/StarTypeEnum'
+    Supernova:
+      type: object
+      title: Supernova
+      required:
+        - type
+        - phase
+      properties:
+        phase:
+          type: string
+          enum:
+            - PreSupernova
+            - CoreCollapse
+            - ShockBreakout
+            - PeakLuminosity
+            - Decay
+            - RemnantFormation
+        type:
+          $ref: '#/components/schemas/StarTypeEnum'
+    Star:
+      type: object
+      oneOf:
+        - $ref: '#/components/schemas/RedGiant'
+        - $ref: '#/components/schemas/WhiteDwarf'
+        - $ref: '#/components/schemas/Supernova'
+      discriminator:
+        propertyName: type
+        mapping:
+          RedGiant: '#/components/schemas/RedGiant'
+          WhiteDwarf: '#/components/schemas/WhiteDwarf'
+          Supernova: '#/components/schemas/Supernova'
+
+paths:
+  /celestialBodies:
+    get:
+      summary: Get celestial objects
+      description: Get celestial objects
+      operationId: getCelestialObjects
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CelestialBody"
+  /solarSystems:
+    get:
+      summary: Get solar systems
+      description: Get solar systems
+      operationId: getSolarSystems
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SolarSystem"
+  /stars:
+    get:
+      summary: Get stars
+      description: Get stars
+      operationId: getStars
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Star"
