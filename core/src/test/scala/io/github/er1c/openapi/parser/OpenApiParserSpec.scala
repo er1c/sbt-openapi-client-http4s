@@ -37,8 +37,22 @@ class OpenApiParserSpec extends AnyFlatSpec with Matchers {
     val openApi = parser.parseFromFile(specPath)
 
     openApi should not be null
-    // Add appropriate assertions based on the content of cosmology.yml
-    // Once we know more about its structure
+    openApi.getInfo.getTitle shouldBe "cosmology"
+    openApi.getInfo.getVersion shouldBe "1.0.0"
+
+    // Verify paths
+    val paths = openApi.getPaths
+    paths should not be null
+    paths.get("/celestialBodies") should not be null
+    paths.get("/solarSystems") should not be null
+    paths.get("/stars") should not be null
+
+    // Verify components
+    val components = openApi.getComponents
+    components should not be null
+    components.getSchemas.get("CelestialBody") should not be null
+    components.getSchemas.get("Star") should not be null
+    components.getSchemas.get("Galaxy") should not be null
   }
 
   it should "throw an exception when parsing an invalid specification" in {

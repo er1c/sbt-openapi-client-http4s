@@ -26,15 +26,15 @@ class GeneratorSpec extends AnyFlatSpec with Matchers {
     val petModel = models.find(_.name == "Pet").get
 
     // Check some properties of the Pet model
-    petModel.properties.map(_._1) should contain allOf("id", "name", "status")
+    petModel.properties.map(_.name) should contain allOf("id", "name", "status")
 
     // Check types
-    val idProp = petModel.properties.find(_._1 == "id").get
-    idProp._2 should be("Long")
+    val idProp = petModel.properties.find(_.name == "id").get
+    idProp.typeName should be("Long")
 
-    val nameProp = petModel.properties.find(_._1 == "name").get
-    nameProp._2 should be("String")
-    nameProp._3 should be(true) // required
+    val nameProp = petModel.properties.find(_.name == "name").get
+    nameProp.typeName should be("String")
+    nameProp.required should be(true) // required
 
     // Check imports
     petModel.imports should not be empty
