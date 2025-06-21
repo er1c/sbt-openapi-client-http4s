@@ -13,7 +13,7 @@ components:
         mass:
           type: number
           format: double
-    ElipticalGalaxy:
+    EllipticalGalaxy:
       type: object
       required:
         - eccentricity
@@ -24,7 +24,7 @@ components:
         etcetra: {}
     Galaxy:
       oneOf:
-        - $ref: "#/components/schemas/ElipticalGalaxy"
+        - $ref: "#/components/schemas/EllipticalGalaxy"
         - $ref: "#/components/schemas/SpiralGalaxy"
     Moon:
       type: object

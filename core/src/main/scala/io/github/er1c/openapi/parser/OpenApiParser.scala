@@ -7,9 +7,9 @@ import scala.collection.JavaConverters._
 
 /**
  * OpenAPI specification parser that leverages the swagger-parser library.
- * This class provides functionality to parse and validate OpenAPI/Swagger specifications.
+ * This object provides functionality to parse and validate OpenAPI/Swagger specifications.
  */
-class OpenApiParser {
+object OpenApiParser {
   /**
    * Parse and validate an OpenAPI specification from a file path.
    *

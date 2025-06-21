@@ -9,7 +9,7 @@ import org.scalatest.matchers.should.Matchers
  */
 class OpenApiParserSpec extends AnyFlatSpec with Matchers {
 
-  val parser = new OpenApiParser()
+  def parser = OpenApiParser
 
   "OpenApiParser" should "successfully parse the petstore specification" in {
     val specPath = getClass.getResource("/specs/petstore_3.0.4.yml").getPath

@@ -38,7 +38,10 @@ lazy val core = project
       // For JSON handling
       "io.circe" %% "circe-core" % "0.14.6",
       "io.circe" %% "circe-generic" % "0.14.6",
+      "io.circe" %% "circe-generic-extras" % "0.14.3",
       "io.circe" %% "circe-parser" % "0.14.6",
+      "io.circe" %% "circe-derivation" % "0.13.0-M5" % Provided,
+      "org.typelevel" %% "cats-core" % "2.10.0",
     )
   )
 

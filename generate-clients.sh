@@ -1,39 +1,31 @@
 #!/bin/bash
+set -e  # Exit on error
 
-# Script to run the OpenAPI client generator CLI
+echo "Building core project first..."
+sbt core/compile
 
-# Ensure sbt is in the PATH
-if ! command -v sbt &> /dev/null
-then
-    echo "sbt could not be found, please install it or add it to your PATH."
-    exit 1
-fi
+rm -rf generated/petstore
+echo "Generating Petstore client..."
+sbt "core/runMain io.github.er1c.openapi.cli.Main \
+  --spec core/src/test/resources/specs/petstore_3.0.4.yml \
+  --outputDir generated \
+  --packageName io.github.er1c.generated \
+  --projectName petstore \
+  --fullProject"
 
-# Base directory of the project (where build.sbt is located)
-PROJECT_BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+echo "Building Petstore client..."
+(cd generated/petstore && sbt compile)
 
-# Output directories
-PETSTORE_OUTPUT_DIR="${PROJECT_BASE_DIR}/generated/petstore"
-COSMOLOGY_OUTPUT_DIR="${PROJECT_BASE_DIR}/generated/cosmology"
+rm -rf generated/cosmology
+echo "Generating Cosmology client..."
+sbt "core/runMain io.github.er1c.openapi.cli.Main \
+  --spec core/src/test/resources/specs/cosmology.yml \
+  --outputDir generated \
+  --packageName io.github.er1c.generated \
+  --projectName cosmology \
+  --fullProject"
 
-# Ensure output directories exist
-mkdir -p "${PETSTORE_OUTPUT_DIR}"
-mkdir -p "${COSMOLOGY_OUTPUT_DIR}"
+echo "Building Cosmology client..."
+(cd generated/cosmology && sbt compile)
 
-# Package name
-PACKAGE_NAME="io.github.er1c.generated"
-
-# OpenAPI specification files
-PETSTORE_SPEC="${PROJECT_BASE_DIR}/core/src/test/resources/specs/petstore_3.0.4.yml"
-COSMOLOGY_SPEC="${PROJECT_BASE_DIR}/core/src/test/resources/specs/cosmology.yml"
-
-# Run for Petstore
-echo "Generating client for Petstore..."
-sbt "core/run --spec ${PETSTORE_SPEC} --outputDir ${PETSTORE_OUTPUT_DIR} --packageName ${PACKAGE_NAME}.petstore"
-
-# Run for Cosmology
-echo "Generating client for Cosmology..."
-sbt "core/run --spec ${COSMOLOGY_SPEC} --outputDir ${COSMOLOGY_OUTPUT_DIR} --packageName ${PACKAGE_NAME}.cosmology"
-
-echo "Script finished."
-
+echo "All clients generated and built successfully!"

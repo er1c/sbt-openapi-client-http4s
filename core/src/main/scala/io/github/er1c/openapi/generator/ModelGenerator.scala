@@ -7,34 +7,279 @@ import java.io.File
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
 
-class ModelGenerator {
+object ModelGenerator {
+  private val defaultModelsPackage = "io.github.er1c.generated.models"
 
-  private val defaultModelsPackage = "io.github.er1c.generated.models" // Fallback
-
-  def generateModels(openApi: OpenAPI, basePackageName: String, outputDir: File): Unit = {
+  /**
+   * Generate a map of Scala file names to their contents, for all models.
+   * The key is the Scala type name (e.g., "Moon"), the value is the file content.
+   * This is a pure function and does not write files.
+   */
+  def generateModels(openApi: OpenAPI, basePackageName: String): Map[String, String] = {
     val modelsPackage = if (basePackageName.isEmpty || basePackageName == ".") defaultModelsPackage else s"$basePackageName.models"
     val components = Option(openApi.getComponents)
     val schemas = components.flatMap(c => Option(c.getSchemas)).map(_.asScala).getOrElse(Map.empty[String, Schema[_]]).toMap
 
     if (schemas.isEmpty) {
-      println("No schemas found in OpenAPI components to generate models from.")
-      return
-    }
+      Map.empty
+    } else {
+      // Find all oneOf parent schemas that don't have discriminators
+      val oneOfParents: Set[String] = schemas.collect {
+        case (parentName, parentSchema) if Option(resolveSchema(parentSchema, openApi).getOneOf).exists(_.asScala.exists(_.get$ref != null)) =>
+          ScalaNames.toTypeName(parentName)
+      }.toSet
 
-    schemas.foreach { case (originalSchemaName, schema) =>
-      val scalaTypeName = ScalaNames.toTypeName(originalSchemaName)
-      val resolvedSchema = resolveSchema(schema, openApi) // Resolve if schema itself is a $ref (unlikely for top-level components)
+      // Track schema names that will be included in ADTs and allOf children that should be skipped
+      val schemasIncludedInADTs = scala.collection.mutable.Set[String]()
 
-      val fileContent = generateSingleModelFileContent(
-        scalaTypeName,
-        resolvedSchema,
-        modelsPackage,
-        openApi,
-        schemas
-      )
-      if (fileContent.nonEmpty) {
-        FileUtils.writeFile(outputDir, modelsPackage, scalaTypeName, fileContent)
+      // First collect all one-of children to exclude them from standalone generation
+      schemas.foreach { case (originalSchemaName, schema) =>
+        val resolvedSchema = resolveSchema(schema, openApi)
+        // Add oneOf children
+        if (resolvedSchema.getOneOf != null && !resolvedSchema.getOneOf.isEmpty) {
+          Option(resolvedSchema.getOneOf).foreach(_.asScala.foreach { oneOfSchema =>
+            if (oneOfSchema.get$ref != null) {
+              val refPath = oneOfSchema.get$ref
+              val childName = refPath.substring(refPath.lastIndexOf('/') + 1)
+              schemasIncludedInADTs.add(childName)
+            }
+          })
+        }
+        // Add allOf children
+        if (Option(schema.getAllOf).exists(_.asScala.exists(_.get$ref != null))) {
+          schemasIncludedInADTs.add(originalSchemaName)
+        }
       }
+
+      // --- Detect allOf inheritance relationships ---
+      // Find all schemas that are referenced via allOf (i.e., subclasses)
+      val allOfChildren: Map[String, List[String]] = schemas.collect {
+        case (childName, schema) if Option(schema.getAllOf).exists(_.asScala.exists(_.get$ref != null)) =>
+          val parentNames = schema.getAllOf.asScala.collect {
+            case ref if ref.get$ref != null =>
+              ref.get$ref.substring(ref.get$ref.lastIndexOf('/') + 1)
+          }.toList
+          childName -> parentNames
+      }
+      // Invert: parent -> List[child]
+      val allOfParents: Map[String, List[String]] = allOfChildren
+        .flatMap { case (child, parents) => parents.map(_ -> child) }
+        .groupBy(_._1).mapValues(_.map(_._2).toList)
+
+      // Now generate the model files, skipping children that are already included in ADTs
+      schemas.flatMap { case (originalSchemaName, schema) =>
+        println(s"[ModelGenerator] Processing schema: $originalSchemaName of type ${schema.getClass.getSimpleName}")
+        val scalaTypeName = ScalaNames.toTypeName(originalSchemaName)
+        val resolvedSchema = resolveSchema(schema, openApi)
+        // --- If this is a parent in allOf, generate a sealed trait and all children as case classes ---
+        if (allOfParents.contains(originalSchemaName)) {
+          val children = allOfParents(originalSchemaName)
+          val childrenDefsAndImports = children.map { childName =>
+            val childSchema = schemas(childName)
+            generateCaseClassWithOpaqueTypes(ScalaNames.toTypeName(childName), childSchema, modelsPackage, openApi, schemas, Some(scalaTypeName))
+          }
+          val childrenDefs = childrenDefsAndImports.map(_._1).mkString("\n\n")
+          val childrenImports = childrenDefsAndImports.flatMap(_._2)
+
+          // Get properties from the parent schema to add as abstract defs in the trait
+          val objectSchema = resolvedSchema.asInstanceOf[ObjectSchema]
+          val propertiesMap = Option(objectSchema.getProperties).map(_.asScala.toMap).getOrElse(Map.empty[String, Schema[_]])
+          val requiredFields = Option(objectSchema.getRequired).map(_.asScala.toSet).getOrElse(Set.empty[String])
+          val propertyDefs = propertiesMap.map { case (propName, propSchema) =>
+            val isNullable = Option(propSchema.getNullable).exists(identity) || !requiredFields.contains(propName)
+            val propType = if (isPrimitive(propSchema)) {
+              val fieldName = ScalaNames.sanitize(ScalaNames.toFieldName(propName))
+              val opaqueTypeName = s"${scalaTypeName}${ScalaNames.toTypeName(fieldName)}"
+              if (isNullable) s"Option[$opaqueTypeName]" else opaqueTypeName
+            } else {
+              getScalaType(propSchema, modelsPackage, openApi, schemas, isPropertyNullable = isNullable, ListBuffer())
+            }
+            s"  def ${ScalaNames.sanitize(ScalaNames.toFieldName(propName))}: $propType"
+          }
+
+          val allImports = (
+            Seq(
+              "import io.circe.*",
+              "import io.circe.generic.semiauto.*",
+              "import io.circe.syntax.*",
+              "import cats.syntax.functor.*", // For .widen
+              "import io.circe.generic.auto.*"
+            ) ++ childrenImports
+          ).distinct.sorted.mkString("\n")
+
+          // Include opaque types for primitive properties in parent trait
+          val opaqueTypes = propertiesMap.collect {
+            case (propName, propSchema) if isPrimitive(propSchema) =>
+              val fieldName = ScalaNames.sanitize(ScalaNames.toFieldName(propName))
+              val opaqueTypeName = s"${scalaTypeName}${ScalaNames.toTypeName(fieldName)}"
+              val underlyingType = getScalaType(propSchema, modelsPackage, openApi, schemas, isPropertyNullable = false, ListBuffer())
+              generatePrimitiveOpaqueType(opaqueTypeName, underlyingType, ListBuffer())
+          }
+
+          val opaqueTypesStr = if (opaqueTypes.nonEmpty) opaqueTypes.mkString("\n\n") + "\n\n" else ""
+          val propertyDefsStr = if (propertyDefs.nonEmpty) propertyDefs.mkString("\n") + "\n" else ""
+
+          val adtCode = s"""$allImports
+
+sealed trait $scalaTypeName {
+$propertyDefsStr}
+
+$opaqueTypesStr
+$childrenDefs
+
+object $scalaTypeName:
+  given Decoder[$scalaTypeName] = List[Decoder[$scalaTypeName]](
+    ${children.map(c => s"summon[Decoder[${ScalaNames.toTypeName(c)}]].map[${scalaTypeName}](identity)").mkString(",\n    ")}
+  ).reduceLeft(_ `or` _)
+
+  given Encoder.AsObject[$scalaTypeName] = Encoder.AsObject.instance {
+    ${children.map(c => s"case v: ${ScalaNames.toTypeName(c)} => v.asJsonObject").mkString("\n    ")}
+  }
+"""
+          Some(scalaTypeName -> s"package $modelsPackage\n\n$adtCode")
+        } else if (schemasIncludedInADTs.contains(originalSchemaName)) {
+          None // Skip ADT children
+        } else if (resolvedSchema.getDiscriminator != null) {
+          // --- Discriminator ADT generation (e.g., Star) ---
+          val childRefs = Option(resolvedSchema.getOneOf).map(_.asScala.map(_.get$ref)).getOrElse(Seq.empty)
+
+          val childrenGenData = childRefs.map { ref =>
+            val childName = ref.substring(ref.lastIndexOf('/') + 1)
+            val childSchema = schemas(childName)
+            generateCaseClassWithOpaqueTypes(ScalaNames.toTypeName(childName), childSchema, modelsPackage, openApi, schemas, Some(scalaTypeName))
+          }
+          val childrenDefs = childrenGenData.map(_._1).mkString("\n\n")
+          val childrenImports = childrenGenData.flatMap(_._2)
+
+          val traitImports = ListBuffer[String]()
+          val traitAndCompanion = generateSealedTrait(scalaTypeName, resolvedSchema, traitImports, modelsPackage)
+
+          val allImports = (
+            Seq(
+              "import io.circe.*",
+              "import io.circe.generic.semiauto.*",
+              "import io.circe.syntax.*",
+              "import cats.syntax.functor.*" // For .widen
+            ) ++ traitImports ++ childrenImports
+          ).distinct.sorted.mkString("\n")
+
+          val disc = resolvedSchema.getDiscriminator
+          val discriminatorProperty = ScalaNames.sanitize(ScalaNames.toFieldName(disc.getPropertyName))
+
+          val adtCode = s"""$allImports
+
+sealed trait $scalaTypeName derives Encoder.AsObject, Decoder {
+  def $discriminatorProperty: String // The discriminator property
+}
+
+$childrenDefs
+
+object $scalaTypeName:
+  given Decoder[$scalaTypeName] = {
+    val decoders = List[Decoder[$scalaTypeName]](
+      ${childRefs.map(ref => s"summon[Decoder[${ScalaNames.toTypeName(ref.substring(ref.lastIndexOf('/') + 1))}]].map(identity)").mkString(",\n      ")}
+    )
+    decoders.reduceLeft(_ `or` _)
+  }
+
+  given Encoder.AsObject[$scalaTypeName] = Encoder.AsObject.instance {
+    ${childRefs.map(ref => s"case v: ${ScalaNames.toTypeName(ref.substring(ref.lastIndexOf('/') + 1))} => v.asJsonObject").mkString("\n    ")}
+  }
+"""
+          Some(scalaTypeName -> s"package $modelsPackage\n\n$adtCode")
+        } else if (oneOfParents.contains(scalaTypeName)) {
+          // --- Non-discriminator ADT generation (e.g., Galaxy) ---
+          val childRefs = Option(resolvedSchema.getOneOf)
+            .map(_.asScala.map { oneOfSchema =>
+              if (oneOfSchema.get$ref != null) {
+                val refPath = oneOfSchema.get$ref
+                val childName = refPath.substring(refPath.lastIndexOf('/') + 1)
+                (ScalaNames.toTypeName(childName), childName) // (typeName, refName)
+              } else {
+                val childName = s"${scalaTypeName}Child$${scala.util.Random.nextInt(1000)}"
+                (childName, null)
+              }
+            }.toSeq).getOrElse(Seq.empty)
+
+          // Get actual child schemas from references
+          val childSchemaMap: Map[String, Schema[_]] = childRefs.flatMap { case (typeName, refName) =>
+            if (refName == null) None
+            else schemas.get(refName).map(schema => typeName -> schema)
+          }.toMap
+
+          // Generate case class definitions for children
+          val childrenGenData = childSchemaMap.map { case (typeName, schema) =>
+            generateCaseClassWithOpaqueTypes(typeName, schema, modelsPackage, openApi, schemas, Some(scalaTypeName))
+          }
+          val childrenDefs = childrenGenData.map(_._1).mkString("\n\n")
+          val childrenImports = childrenGenData.flatMap(_._2)
+
+          val allImports = (
+            Seq(
+              "import io.circe.*",
+              "import io.circe.generic.semiauto.*",
+              "import io.circe.syntax.*",
+              "import cats.syntax.functor.*",
+              "import io.circe.generic.auto.*"
+            ) ++ childrenImports
+          ).distinct.sorted.mkString("\n")
+
+          val adtCode = s"""$allImports
+
+sealed trait $scalaTypeName
+
+$childrenDefs
+
+object $scalaTypeName {
+  given Decoder[$scalaTypeName] = ${childRefs.map(t => s"Decoder[${t._1}].widen").mkString(".or(")}${")" * (childRefs.size - 1)}
+  given Encoder[$scalaTypeName] = Encoder.instance {
+    ${childRefs.map(t => s"case v: ${t._1} => Encoder[${t._1}].apply(v)").mkString("\n    ")}
+  }
+}
+"""
+          Some(scalaTypeName -> s"package $modelsPackage\n\n$adtCode")
+        } else {
+          // Fallback: treat any schema with allOf as ObjectSchema for code generation
+          val hasAllOf = Option(resolvedSchema.getAllOf).exists(_.asScala.nonEmpty)
+          val isObjectSchema = resolvedSchema.isInstanceOf[ObjectSchema]
+          val fileContent: String = if (hasAllOf && !isObjectSchema) {
+            val objSchema = new ObjectSchema()
+            objSchema.setAllOf(resolvedSchema.getAllOf)
+            objSchema.setProperties(resolvedSchema.getProperties)
+            objSchema.setRequired(resolvedSchema.getRequired)
+            generateCaseClass(scalaTypeName, objSchema, modelsPackage, openApi, schemas, ListBuffer("import io.circe.{Decoder, Encoder}"), None, modelsPackage)
+          } else {
+            generateSingleModelFileContent(
+              scalaTypeName,
+              resolvedSchema,
+              modelsPackage,
+              openApi,
+              schemas,
+              None,
+              modelsPackage
+            )
+          }
+          if (fileContent.nonEmpty) Some(scalaTypeName -> fileContent) else None
+        }
+      }
+    }
+  }
+
+  /**
+   * Generate Scala model files and write them to disk.
+   * This is a side-effecting method that writes files using the generated content.
+   *
+   * @param openApi The parsed OpenAPI specification
+   * @param basePackageName The base Scala package for generated code
+   * @param outputDir The output directory for generated files
+   */
+  def generateModelFiles(openApi: OpenAPI, basePackageName: String, outputDir: File): Unit = {
+    val files = generateModels(openApi, basePackageName)
+    val modelsPackage = if (basePackageName.isEmpty || basePackageName == ".") defaultModelsPackage else s"$basePackageName.models"
+
+    // Generate model files
+    files.foreach { case (fileName, content) =>
+      FileUtils.writeFile(outputDir, modelsPackage, fileName, content)
     }
   }
 
@@ -59,9 +304,11 @@ class ModelGenerator {
     schema: Schema[_],
     modelsPackage: String,
     openApi: OpenAPI,
-    allSchemas: Map[String, Schema[_]]
+    allSchemas: Map[String, Schema[_]],
+    sealedTraitParentOpt: Option[String] = None,
+    sealedTraitPackage: String = ""
   ): String = {
-    val imports = ListBuffer("import io.circe.{Decoder, Encoder}")
+    val imports = ListBuffer("import io.circe.{Codec, Decoder, Encoder}")
     val description = Option(schema.getDescription).filter(_.nonEmpty).map(d => s"/**\n * ${d.replace("\n", "\n * ").replace("*/", "* /")}\n */\n").getOrElse("")
 
     val definition: String = schema match {
@@ -69,25 +316,24 @@ class ModelGenerator {
         generateEnum(scalaTypeName, s, imports)
       case s if s.getDiscriminator != null || (s.getOneOf != null && !s.getOneOf.isEmpty && s.getOneOf.asScala.exists(oneOfSchema => oneOfSchema.get$ref != null)) =>
         if (s.getDiscriminator != null) {
-          generateSealedTrait(scalaTypeName, s, imports)
+          generateSealedTrait(scalaTypeName, s, imports, modelsPackage)
         } else {
           println(s"Warning: Schema $scalaTypeName has oneOf but no discriminator. Generating as a simple case class or placeholder.")
-          // Potentially generate a coproduct using Circe's auto coproduct derivation if all oneOf are simple types or refs
-          // For now, a placeholder or attempt a simple case class if it has properties.
           if (s.getProperties != null && !s.getProperties.isEmpty) {
-            generateCaseClass(scalaTypeName, s.asInstanceOf[ObjectSchema], modelsPackage, openApi, allSchemas, imports)
+            generateCaseClass(scalaTypeName, s.asInstanceOf[ObjectSchema], modelsPackage, openApi, allSchemas, imports, sealedTraitParentOpt, sealedTraitPackage)
           } else {
             s"// TODO: Implement oneOf for $scalaTypeName (no discriminator, no properties)\ncase class $scalaTypeName() // Placeholder"
           }
         }
       case s: ObjectSchema =>
+        // Always generate a case class if there are any properties or allOf (even if direct properties are empty)
         if ((s.getProperties != null && !s.getProperties.isEmpty) || (s.getAllOf != null && !s.getAllOf.isEmpty)) {
-          generateCaseClass(scalaTypeName, s, modelsPackage, openApi, allSchemas, imports)
+          generateCaseClass(scalaTypeName, s, modelsPackage, openApi, allSchemas, imports, sealedTraitParentOpt, sealedTraitPackage)
         } else if (s.getAdditionalProperties != null) {
           generateMapOpaqueType(scalaTypeName, s, modelsPackage, openApi, allSchemas, imports)
         } else {
-          imports += "import io.circe.generic.semiauto._"
-          s"case class $scalaTypeName()\nobject $scalaTypeName {\n  implicit val enc: Encoder[$scalaTypeName] = deriveEncoder\n  implicit val dec: Decoder[$scalaTypeName] = deriveDecoder\n}"
+          imports += "import io.circe.JsonObject"
+          s"case class $scalaTypeName()\n|\n|object $scalaTypeName {\n|  implicit val enc: Encoder[$scalaTypeName] = deriveEncoder\n|  implicit val dec: Decoder[$scalaTypeName] = deriveDecoder\n|}".stripMargin
         }
       case s: ArraySchema =>
         generateArrayOpaqueType(scalaTypeName, s, modelsPackage, openApi, allSchemas, imports)
@@ -120,7 +366,10 @@ class ModelGenerator {
     if (definition.isEmpty || definition.trim.startsWith("// TODO") || definition.trim.startsWith("// Unhandled")) {
       "" // Don't generate file for TODOs or unhandled
     } else {
-      s"package $modelsPackage\n\n${imports.distinct.sorted.mkString("\n")}\n\n$description$definition"
+      s"""package $modelsPackage
+      |${imports.distinct.sorted.mkString("\n")}
+      |$description$definition
+      |""".stripMargin
     }
   }
 
@@ -129,14 +378,19 @@ class ModelGenerator {
     underlyingScalaType: String,
     imports: ListBuffer[String]
   ): String = {
-    val (encoderLine, decoderLine) = underlyingScalaType match {
+    // --- Force all floating point types to BigDecimal ---
+    val finalUnderlyingType = underlyingScalaType match {
+      case "Float" | "Double" =>
+        imports += "import scala.math.BigDecimal"
+        "BigDecimal"
+      case other => other
+    }
+    val (encoderLine, decoderLine) = finalUnderlyingType match {
       case "String"     => (s"Encoder.encodeString.contramap(_.value)", s"Decoder.decodeString.map($typeName.apply)")
       case "Int"        => (s"Encoder.encodeInt.contramap(_.value)", s"Decoder.decodeInt.map($typeName.apply)")
       case "Long"       => (s"Encoder.encodeLong.contramap(_.value)", s"Decoder.decodeLong.map($typeName.apply)")
       case "Boolean"    => (s"Encoder.encodeBoolean.contramap(_.value)", s"Decoder.decodeBoolean.map($typeName.apply)")
-      case "Float"      => (s"Encoder.encodeFloat.contramap(_.value)", s"Decoder.decodeFloat.map($typeName.apply)")
-      case "Double"     => (s"Encoder.encodeDouble.contramap(_.value)", s"Decoder.decodeDouble.map($typeName.apply)")
-      case "BigDecimal" =>
+      case "Float" | "Double" | "BigDecimal" =>
         imports += "import scala.math.BigDecimal"
         (s"Encoder.encodeBigDecimal.contramap(_.value)", s"Decoder.decodeBigDecimal.map($typeName.apply)")
       case "java.time.LocalDate" =>
@@ -161,17 +415,17 @@ class ModelGenerator {
         (s"Encoder.encodeString.contramap(bytes => Base64.getEncoder.encodeToString(bytes))",
          s"Decoder.decodeString.map(str => $typeName.apply(Base64.getDecoder.decode(str)))")
       case _ =>
-        println(s"Warning: No specific Circe encoder/decoder for opaque type $typeName with underlying $underlyingScalaType.")
-        (s"Encoder.encodeString.contramap(_.toString)", s"Decoder.decodeString.map(s => $typeName.apply(s.asInstanceOf[$underlyingScalaType])) // FIXME: May not work")
+        println(s"Warning: No specific Circe encoder/decoder for opaque type $typeName with underlying $finalUnderlyingType.")
+        (s"Encoder.encodeString.contramap(_.toString)", s"Decoder.decodeString.map(s => $typeName.apply(s.asInstanceOf[$finalUnderlyingType])) // FIXME: May not work")
     }
 
-    s"""opaque type $typeName = $underlyingScalaType
+    s"""opaque type $typeName = $finalUnderlyingType
 
 object $typeName {
-  def apply(value: $underlyingScalaType): $typeName = value
+  def apply(value: $finalUnderlyingType): $typeName = value
 
   extension (t: $typeName)
-    def value: $underlyingScalaType = t
+    def value: $finalUnderlyingType = t
 
   given Encoder[$typeName] = $encoderLine
   given Decoder[$typeName] = $decoderLine
@@ -193,6 +447,7 @@ object $typeName {
     s"""enum $typeName {
 $cases
 }
+
 object $typeName {
   implicit val encoder: Encoder[$typeName] = Encoder.instance {
     $encoderCases
@@ -212,9 +467,17 @@ object $typeName {
     modelsPackage: String,
     openApi: OpenAPI,
     allSchemas: Map[String, Schema[_]],
-    imports: ListBuffer[String]
+    imports: ListBuffer[String],
+    sealedTraitParentOpt: Option[String] = None,
+    sealedTraitPackage: String = ""
   ): String = {
-    imports += "import io.circe.generic.semiauto._"
+    imports += "import io.circe.generic.semiauto.*"
+    // --- NEW: Add import for sealed trait if needed ---
+    sealedTraitParentOpt.foreach { parent =>
+      if (sealedTraitPackage.nonEmpty && sealedTraitPackage != modelsPackage) {
+        imports += s"import $sealedTraitPackage.$parent"
+      }
+    }
 
     val localPropertiesMap = Option(schema.getProperties).map(_.asScala.toMap).getOrElse(Map.empty[String, Schema[_]])
     val requiredFields = Option(schema.getRequired).map(_.asScala.toSet).getOrElse(Set.empty[String])
@@ -278,12 +541,26 @@ object $typeName {
       s"$propDescription$fieldName: $fieldType"
     }.mkString(",\n")
 
+    // --- NEW: Add extends clause if sealedTraitParentOpt is defined ---
+    val extendsStr = sealedTraitParentOpt.map(parent => s" extends $parent").getOrElse("")
+
     if (combinedProperties.isEmpty) {
-      s"case class $typeName()\nobject $typeName {\n  implicit val encoder: Encoder[$typeName] = deriveEncoder[$typeName]\n  implicit val decoder: Decoder[$typeName] = deriveDecoder[$typeName]\n}"
+      s"""case class $typeName()$extendsStr derives Encoder.AsObject, Decoder
+        |
+        |object $typeName {}""".stripMargin
     } else {
+      imports += "import io.circe.generic.semiauto.*"
       val opaqueTypesStr = if (fieldOpaqueTypes.nonEmpty) fieldOpaqueTypes.mkString("\n\n") + "\n\n" else ""
       s"""$opaqueTypesStr
-case class $typeName(\n${fieldsStr.split("\n").map(l => if(l.trim.startsWith("/**")) l else "  " + l).mkString("\n")}\n)\nobject $typeName {\n  implicit val encoder: Encoder[$typeName] = deriveEncoder[$typeName]\n  implicit val decoder: Decoder[$typeName] = deriveDecoder[$typeName]\n}"""
+case class $typeName(
+${fieldsStr.split("\n").map(l => if(l.trim.startsWith("/**")) l else "  " + l).mkString("\n")}
+)$extendsStr derives Encoder.AsObject, Decoder
+
+object $typeName:
+  given codec: Codec.AsObject[$typeName] = deriveCodec[$typeName]${if (!extendsStr.isEmpty) {
+    s"\n\n  // ADT encoders/decoders\n  given adtEncoder: Encoder[${sealedTraitParentOpt.get}] = codec.asInstanceOf[Encoder[${typeName}]]\n  given adtDecoder: Decoder[$typeName] = codec"
+  } else ""}
+"""
     }
   }
 
@@ -304,17 +581,20 @@ case class $typeName(\n${fieldsStr.split("\n").map(l => if(l.trim.startsWith("/*
   private def generateSealedTrait(
     traitName: String,
     schema: Schema[_],
-    imports: ListBuffer[String]
+    imports: ListBuffer[String],
+    modelsPackage: String
   ): String = {
-    imports += "import io.circe.syntax._"
-    // Concrete types might use generic.semiauto, but the trait itself doesn't directly.
+    imports += "import io.circe.syntax.*"
 
     val disc = schema.getDiscriminator
     if (disc == null) {
       return s"// Sealed trait $traitName generation skipped: No discriminator found."
     }
     val discriminatorPropertyJsonName = disc.getPropertyName // Use original JSON name for lookup
-    val discriminatorPropertyScalaName = ScalaNames.toFieldName(ScalaNames.sanitize(discriminatorPropertyJsonName))
+    val discriminatorPropertyScalaName = ScalaNames.sanitize(ScalaNames.toFieldName(discriminatorPropertyJsonName)) match {
+      case "type" => "`type`" // Backtick the 'type' keyword
+      case other => other
+    }
 
     val concreteTypeInfos = Option(disc.getMapping).map(_.asScala.map { case (discValue, ref) =>
       (discValue, ScalaNames.toTypeName(ref.substring(ref.lastIndexOf('/') + 1)))
@@ -335,25 +615,28 @@ case class $typeName(\n${fieldsStr.split("\n").map(l => if(l.trim.startsWith("/*
     }.mkString("\n      ")
 
     val encoderCases = concreteTypeInfos.map { case (_, concreteTypeName) =>
-      s"case t: $concreteTypeName => t.asJson"
-    }.mkString("\n      ")
+      s"case t: $concreteTypeName => t.asJsonObject"
+    }.mkString("\n    ")
 
     s"""sealed trait $traitName {
   def $discriminatorPropertyScalaName: String // The discriminator property
 }
 
 object $traitName {
-  implicit val decoder: Decoder[$traitName] = Decoder.instance { c =>
+  given (using enc: Encoder.AsObject[$traitName]): Encoder[$traitName] = enc
+
+  given Decoder[$traitName] = Decoder.instance { c =>
     c.downField("${discriminatorPropertyJsonName}").as[String].flatMap {
       $decoderCases
       case other => Left(io.circe.DecodingFailure(s"Unknown value '$${other}' for discriminator '${discriminatorPropertyJsonName}' in $traitName", c.history))
     }
   }
 
-  implicit val encoder: Encoder[$traitName] = Encoder.instance {
+  given Encoder.AsObject[$traitName] = Encoder.AsObject.instance {
     $encoderCases
   }
-}"""
+}
+"""
   }
 
   private def generateArrayOpaqueType(
@@ -442,8 +725,8 @@ object $typeName {
         case _ => "Int"
       }
       case s: NumberSchema => Option(s.getFormat) match {
-        case Some("float") => "Float"
-        case Some("double") => "Double"
+        case Some("float") => imports += "import scala.math.BigDecimal"; "BigDecimal"
+        case Some("double") => imports += "import scala.math.BigDecimal"; "BigDecimal"
         case _ => imports += "import scala.math.BigDecimal"; "BigDecimal"
       }
       case _: BooleanSchema => "Boolean"
@@ -457,12 +740,96 @@ object $typeName {
         val schemaNameFromAll = allSchemas.find { case (_, sch) => sch eq s }.map(_._1)
         schemaNameFromAll.map(ScalaNames.toTypeName).getOrElse {
             println(s"Warning: Unrecognized inline schema type for property: ${s.getType}, format: ${s.getFormat}. Defaulting to io.circe.Json.")
-            imports += "import io.circe.Json"
+            imports += "import io.circe.*"
             "Json"
         }
     }
     if (isPropertyNullable) s"Option[$coreType]" else coreType
   }
+
+  private def generateCaseClassWithOpaqueTypes(
+    typeName: String,
+    schema: Schema[_],
+    modelsPackage: String,
+    openApi: OpenAPI,
+    allSchemas: Map[String, Schema[_]],
+    sealedTraitParentOpt: Option[String]
+  ): (String, Seq[String]) = {
+    val imports = ListBuffer[String](
+      "import io.circe.*",
+      "import io.circe.generic.semiauto.*",
+      "import cats.syntax.functor.*",
+    )
+
+    val allImports = imports.distinct.sorted.mkString("\n")
+
+    // --- Find parent schema and its properties via allOf ---
+    val allOfSchemas = Option(schema.getAllOf).map(_.asScala.toList).getOrElse(List.empty)
+    val parentProperties = allOfSchemas.flatMap { refSchema =>
+      if (refSchema.get$ref != null) {
+        val refName = refSchema.get$ref.substring(refSchema.get$ref.lastIndexOf('/') + 1)
+        val parentSchema = resolveSchema(refSchema, openApi)
+        // Get parent's property names and their opaque type names
+        Option(parentSchema.getProperties).map(_.asScala.toMap).getOrElse(Map.empty).map {
+          case (propName, propSch) =>
+            val fieldName = ScalaNames.sanitize(ScalaNames.toFieldName(propName))
+            fieldName -> (propSch, s"${ScalaNames.toTypeName(refName)}${ScalaNames.toTypeName(fieldName)}")
+        }
+      } else Map.empty[String, (Schema[_], String)]
+    }.toMap
+
+    val localPropertiesMap = Option(schema.getProperties).map(_.asScala.toMap).getOrElse(Map.empty[String, Schema[_]])
+    val requiredFields = Option(schema.getRequired).map(_.asScala.toSet).getOrElse(Set.empty[String])
+    val localPropertyDefs = localPropertiesMap.map { case (propName, propSchema) =>
+      val isNullable = Option(propSchema.getNullable).exists(identity) || !requiredFields.contains(propName)
+      ScalaNames.sanitize(ScalaNames.toFieldName(propName)) -> (propSchema, isNullable)
+    }
+
+    val fieldOpaqueTypes = ListBuffer[String]()
+    // Combine both inherited and local fields for the constructor
+    val fieldsWithTypes = (parentProperties.map { case (fieldName, (propSchema, parentOpaqueName)) =>
+      // Use the parent's opaque type for inherited fields
+      (fieldName, parentOpaqueName)
+    } ++ localPropertyDefs.map { case (fieldName, (propSchema, isNullable)) =>
+      val shouldGenerateOpaqueType = isPrimitive(propSchema)
+      val fieldType = if (shouldGenerateOpaqueType) {
+        // Check if this field exists in parent with an opaque type
+        parentProperties.get(fieldName) match {
+          case Some((_, parentOpaqueName)) =>
+            // Use parent's opaque type
+            if (isNullable) s"Option[$parentOpaqueName]" else parentOpaqueName
+          case None =>
+            // Generate new opaque type for this field
+            val underlyingType = getScalaType(propSchema, modelsPackage, openApi, allSchemas, isPropertyNullable = false, imports)
+            val opaqueTypeName = s"${typeName}${ScalaNames.toTypeName(fieldName)}"
+            fieldOpaqueTypes += generatePrimitiveOpaqueType(opaqueTypeName, underlyingType, imports)
+            if (isNullable) s"Option[$opaqueTypeName]" else opaqueTypeName
+        }
+      } else {
+        getScalaType(propSchema, modelsPackage, openApi, allSchemas, isPropertyNullable = isNullable, imports)
+      }
+      (fieldName, fieldType)
+    }).toMap
+
+    val fieldsStr = fieldsWithTypes.map { case (fieldName, fieldType) =>
+      s"  $fieldName: $fieldType" + (if (fieldType.startsWith("Option")) " = None" else "")
+    }.mkString(",\n")
+    val extendsStr = sealedTraitParentOpt.map(parent => s" extends $parent").getOrElse("")
+    val opaqueTypesStr = if (fieldOpaqueTypes.nonEmpty) fieldOpaqueTypes.mkString("\n\n") + "\n\n" else ""
+    val code = s"""$allImports
+
+$opaqueTypesStr
+// $typeName case class
+final case class $typeName(
+$fieldsStr
+)$extendsStr derives Encoder.AsObject, Decoder
+
+object $typeName {
+  given codec: Codec.AsObject[$typeName] = deriveCodec[$typeName]${if (!extendsStr.isEmpty) {
+    s"\n\n  // ADT encoders/decoders\n  given adtEncoder: Encoder[${typeName}] = codec.asInstanceOf[Encoder[${typeName}]]\n  given adtDecoder: Decoder[$typeName] = codec"
+  } else ""}
 }
-
-
+"""
+    (code, imports.distinct.toSeq)
+  }
+}
