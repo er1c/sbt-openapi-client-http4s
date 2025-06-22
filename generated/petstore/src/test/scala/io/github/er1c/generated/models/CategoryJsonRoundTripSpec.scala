@@ -5,14 +5,14 @@ import io.circe.syntax.*
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-class StarTypeEnumJsonRoundTripSpec extends AnyFlatSpec with Matchers {
-  "StarTypeEnum".should("round-trip JSON serialize/deserialize") in {
-    val jsonStr = """"Supernova""""
-    val decoded = decode[StarTypeEnum](jsonStr)
+class CategoryJsonRoundTripSpec extends AnyFlatSpec with Matchers {
+  "Category".should("round-trip JSON serialize/deserialize") in {
+    val jsonStr = """{"id":60,"name":"nVNXCJRrXaEeuKfOjjePNwRXqiaYmu"}"""
+    val decoded = decode[Category](jsonStr)
     decoded.isRight shouldBe true
     val model = decoded.toOption.get
     val encoded = model.asJson.noSpaces
-    val decodedAgain = decode[StarTypeEnum](encoded)
+    val decodedAgain = decode[Category](encoded)
     decodedAgain.isRight shouldBe true
     decodedAgain.toOption.get shouldBe model
   }

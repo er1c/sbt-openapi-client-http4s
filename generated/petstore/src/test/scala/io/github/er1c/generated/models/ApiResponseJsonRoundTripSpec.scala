@@ -7,7 +7,7 @@ import org.scalatest.matchers.should.Matchers
 
 class ApiResponseJsonRoundTripSpec extends AnyFlatSpec with Matchers {
   "ApiResponse".should("round-trip JSON serialize/deserialize") in {
-    val jsonStr = """{"code":40,"type":"ouAPGgSiJObx","message":"jUFTftLOLsjTlFlkFMsLtObVQIuxTfTxeaXLQvESPQmIrV"}"""
+    val jsonStr = """{"code":100,"type":"oaazahVKObTgMKPpXxRgjDsLRcKCVcbMifUHgMuSPrwbyEgQdYLNjhmBAfvIizxDNnJqqDYGDhlwjIbkzzWQnYpIPSUz","message":"jexrQTpXVcjRXDLodekvEfELzcuvSUUzRRcHdUiJimWOaycOXtHYHJTTgcdIMpJNWHfCwzKaIqzuyFqVovljYXz"}"""
     val decoded = decode[ApiResponse](jsonStr)
     decoded.isRight shouldBe true
     val model = decoded.toOption.get

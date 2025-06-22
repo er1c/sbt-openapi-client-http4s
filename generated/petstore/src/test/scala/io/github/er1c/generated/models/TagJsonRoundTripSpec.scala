@@ -5,14 +5,14 @@ import io.circe.syntax.*
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-class RedGiantJsonRoundTripSpec extends AnyFlatSpec with Matchers {
-  "RedGiant".should("round-trip JSON serialize/deserialize") in {
-    val jsonStr = """{"heliumFusion":"Exhaustion","type":"WhiteDwarf"}"""
-    val decoded = decode[RedGiant](jsonStr)
+class TagJsonRoundTripSpec extends AnyFlatSpec with Matchers {
+  "Tag".should("round-trip JSON serialize/deserialize") in {
+    val jsonStr = """{"id":87,"name":"ueMpImhToFAmFcsZSbrCVBVMLHJMwXuVSPXPIFRJKMQFibLUhRYOQHrMaSkyRKCaOpsDVrHdwdQJpII"}"""
+    val decoded = decode[Tag](jsonStr)
     decoded.isRight shouldBe true
     val model = decoded.toOption.get
     val encoded = model.asJson.noSpaces
-    val decodedAgain = decode[RedGiant](encoded)
+    val decodedAgain = decode[Tag](encoded)
     decodedAgain.isRight shouldBe true
     decodedAgain.toOption.get shouldBe model
   }

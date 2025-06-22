@@ -7,7 +7,7 @@ import org.scalatest.matchers.should.Matchers
 
 class UserJsonRoundTripSpec extends AnyFlatSpec with Matchers {
   "User".should("round-trip JSON serialize/deserialize") in {
-    val jsonStr = """{"email":"tbVdQjSQbFzwNTaFPAQxVaLlnnFfCGJHAqvivukFCHjfoskfQBjSxEPF","username":"sImwdUOQdqIdVzMEbZIZfxsgibjIFEfLCBmonVKfplJyNbNpoEAaOQuqLfimiCPEGDbaRNsYyGZKjJBZ","userStatus":89,"lastName":"ANuXdwYEYdfErVqDbqIpabQuUSsRyNkYzfWoB","firstName":"brioGwcgJxZXdxwmTLCBDsMZFrcbeSRWtfLoNik","id":89,"phone":"dVMNkaBXKTYrHUIpKgVpFdeFPktkebsipkygFDPStrmOCsZYHkgMzNIECpsdtVEsXjWF","password":"FTzmIGNPkMsDLoYqhtMOAATjayvXVo"}"""
+    val jsonStr = """{"email":"HvzWVhojQHFttkAicHAUpMhTgPoZKBxtyPWRVVplBjMiAqlGjAHRJsbHyyxPjZiEDJqOiBTSaTvpFrnyTsMbz","username":"tjmSqmmNVPI","userStatus":93,"lastName":"H","firstName":"nWeQbFJTEwAaTDvGjSCIPiDkIiUgugAwSpDaSbEkUlifnKVFCBBlYAqZMgiS","id":31,"phone":"WRPkaycAsWdYSdsshznqQRWCYRlNTCNBbbQMO","password":"GvQaFnphDfIJhVWmvkrYIaTtLWhccAYrs"}"""
     val decoded = decode[User](jsonStr)
     decoded.isRight shouldBe true
     val model = decoded.toOption.get

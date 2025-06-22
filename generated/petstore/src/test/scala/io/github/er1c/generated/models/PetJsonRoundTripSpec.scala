@@ -7,7 +7,7 @@ import org.scalatest.matchers.should.Matchers
 
 class PetJsonRoundTripSpec extends AnyFlatSpec with Matchers {
   "Pet".should("round-trip JSON serialize/deserialize") in {
-    val jsonStr = """{"name":"sCStDcGoykctwhfZrpyXXepDNweYZMNkuKmVOjCcpQarfzHsHIM","tags":[{"id":2,"name":"JUAKBDpQNxjGAkMjkwoMgzPNAtqHEKRbRwKYqnhprXHBEfMJbCkOHvbmZdOwlk"},{"id":11,"name":"RuUgVhZrFweEivmbQbThqSGktMBfeMJwamcklGDxAdWoEKfNlWrMcRtkbIdqCNXEYbtYJw"}],"photoUrls":["yTVAZYghXpJGecBVoFeumfevNBCM","VzLNwPjCPZxcNJpuUIiwcpyWvVepXrGwVwLFvvXbXcgge"],"id":37,"status":"pending","category":{"id":5,"name":"HpsHhiihjjuiCIvYGjaRruDtCBvCrgNauTVouueaNTfyYDNsymeFcHTsUCZpH"}}"""
+    val jsonStr = """{"name":"uJYIMwuLnaVdqnzkokbuNinlPMZCCEnaTTmvvddtdypXcFQtKkLECqUzLFNgFqesTIp","tags":[{"id":36,"name":"FnwPkFYkAhlarfkuqgfFLQwYkRknXupmdFAvHeTkwqQydVxqSItQvGlBHQQuSh"},{"id":50,"name":"doSfgASRBndTzDQNbCmZgxGRwNonnaWgZLYXLCXnKMMvlDORzXbAOnqFAJqGFsAhqMRaQQKtknpkRdCCVAFFzorGZVWOTtQ"}],"photoUrls":["RZFQfXpVwcICTLzbeOjIzSlunPBJuEGdbc","kzPzgOyxiFBdstYAlEmnrzZnNdUueZgrgYZtgLmVZEvNzPnvfvfUEzIOFDVwzEewNcFqhRDcHMFSzEjYdiAmhOZxn"],"id":97,"status":"available","category":{"id":43,"name":"sVUSCsZHoESsaTyMJigWBSPdfBjLlmEWTslNduBSrCRCtJMd"}}"""
     val decoded = decode[Pet](jsonStr)
     decoded.isRight shouldBe true
     val model = decoded.toOption.get

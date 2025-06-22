@@ -105,18 +105,19 @@ object Supernova {
 }
 
 
-object Star:
-  given Decoder[Star] = {
-    val decoders = List[Decoder[Star]](
-      summon[Decoder[RedGiant]].map(identity),
-      summon[Decoder[WhiteDwarf]].map(identity),
-      summon[Decoder[Supernova]].map(identity)
-    )
-    decoders.reduceLeft(_ `or` _)
-  }
+object Star {
+  given Decoder[Star] = Decoder.instance {{ c =>
+    c.downField("type").as[String].flatMap {
+      case "RedGiant" => c.as[RedGiant]
+      case "WhiteDwarf" => c.as[WhiteDwarf]
+      case "Supernova" => c.as[Supernova]
+      case other => Left(io.circe.DecodingFailure(s"Unknown value '${other}' for discriminator 'type' in Star", c.history))
+    }
+  }}
 
   given Encoder.AsObject[Star] = Encoder.AsObject.instance {
     case v: RedGiant => v.asJsonObject
     case v: WhiteDwarf => v.asJsonObject
     case v: Supernova => v.asJsonObject
   }
+}

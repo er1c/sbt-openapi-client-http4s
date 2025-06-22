@@ -5,14 +5,14 @@ import io.circe.syntax.*
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-class SpiralGalaxyJsonRoundTripSpec extends AnyFlatSpec with Matchers {
-  "SpiralGalaxy".should("round-trip JSON serialize/deserialize") in {
-    val jsonStr = """{"uuid":"123e4567-e89b-12d3-a456-426614174000","armCount":81}"""
-    val decoded = decode[SpiralGalaxy](jsonStr)
+class ErrorJsonRoundTripSpec extends AnyFlatSpec with Matchers {
+  "Error".should("round-trip JSON serialize/deserialize") in {
+    val jsonStr = """{"code":"KmaMUXGrcEHUKHzNQbTQhUaZtcxlaNvNKukkg","message":"WEjLKWUEUMsCQjALXvNNhLArux"}"""
+    val decoded = decode[Error](jsonStr)
     decoded.isRight shouldBe true
     val model = decoded.toOption.get
     val encoded = model.asJson.noSpaces
-    val decodedAgain = decode[SpiralGalaxy](encoded)
+    val decodedAgain = decode[Error](encoded)
     decodedAgain.isRight shouldBe true
     decodedAgain.toOption.get shouldBe model
   }

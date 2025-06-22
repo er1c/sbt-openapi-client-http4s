@@ -165,6 +165,13 @@ object $scalaTypeName:
 
           val disc = resolvedSchema.getDiscriminator
           val discriminatorProperty = ScalaNames.sanitize(ScalaNames.toFieldName(disc.getPropertyName))
+          val discriminatorJsonName = disc.getPropertyName
+          val mapping = Option(disc.getMapping).map(_.asScala.toMap).getOrElse(Map.empty[String, String])
+          val childTypeCases = childRefs.map { ref =>
+            val childName = ref.substring(ref.lastIndexOf('/') + 1)
+            val discValue = mapping.find(_._2.endsWith(childName)).map(_._1).getOrElse(ScalaNames.toFieldName(childName))
+            s"""case "$discValue" => c.as[${ScalaNames.toTypeName(childName)}]"""
+          }.mkString("\n      ")
 
           val adtCode = s"""$allImports
 
@@ -174,18 +181,18 @@ sealed trait $scalaTypeName {
 
 $childrenDefs
 
-object $scalaTypeName:
-  given Decoder[$scalaTypeName] = {
-    val decoders = List[Decoder[$scalaTypeName]](
-      ${childRefs.map(ref => s"summon[Decoder[${ScalaNames.toTypeName(ref.substring(ref.lastIndexOf('/') + 1))}]].map(identity)").mkString(",\n      ")}
-    )
-    decoders.reduceLeft(_ `or` _)
-  }
+object $scalaTypeName {
+  given Decoder[$scalaTypeName] = Decoder.instance {{ c =>
+    c.downField(\"$discriminatorJsonName\").as[String].flatMap {
+      $childTypeCases
+      case other => Left(io.circe.DecodingFailure(s\"Unknown value '$${other}' for discriminator '$discriminatorJsonName' in $scalaTypeName\", c.history))
+    }
+  }}
 
   given Encoder.AsObject[$scalaTypeName] = Encoder.AsObject.instance {
     ${childRefs.map(ref => s"case v: ${ScalaNames.toTypeName(ref.substring(ref.lastIndexOf('/') + 1))} => v.asJsonObject").mkString("\n    ")}
   }
-"""
+}"""
           Some(scalaTypeName -> s"package $modelsPackage\n\n$adtCode")
         } else if (oneOfParents.contains(scalaTypeName)) {
           // --- Non-discriminator ADT generation (e.g., Galaxy) ---

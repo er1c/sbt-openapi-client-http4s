@@ -7,7 +7,7 @@ import org.scalatest.matchers.should.Matchers
 
 class OrderJsonRoundTripSpec extends AnyFlatSpec with Matchers {
   "Order".should("round-trip JSON serialize/deserialize") in {
-    val jsonStr = """{"shipDate":"2023-01-01T12:00:00Z","quantity":75,"petId":23,"id":70,"complete":true,"status":"approved"}"""
+    val jsonStr = """{"shipDate":"2023-01-01T12:00:00Z","quantity":55,"petId":86,"id":14,"complete":false,"status":"delivered"}"""
     val decoded = decode[Order](jsonStr)
     decoded.isRight shouldBe true
     val model = decoded.toOption.get

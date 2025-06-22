@@ -8,28 +8,38 @@ import scala.collection.JavaConverters._
 
 object ExampleJsonGenerator {
   // Entry point: generate a sample JSON string for a schema
-  def exampleJsonForSchema(schema: Schema[_], openApi: OpenAPI): Option[String] = {
-    val gen = genForSchema(schema, openApi)
+  def exampleJsonForSchema(schema: Schema[_], openApi: OpenAPI, forceDiscriminator: Option[(String, String)] = None): Option[String] = {
+    val gen = genForSchema(schema, openApi, forceDiscriminator)
     gen.flatMap(_.sample).map(_.noSpaces)
   }
 
-  private def genForSchema(schema: Schema[_], openApi: OpenAPI): Option[Gen[Json]] = {
+  private def genForSchema(schema: Schema[_], openApi: OpenAPI, forceDiscriminator: Option[(String, String)] = None): Option[Gen[Json]] = {
     schema match {
       case ref if ref.get$ref != null =>
         val refName = ref.get$ref.substring(ref.get$ref.lastIndexOf('/') + 1)
         val resolved = Option(openApi.getComponents)
           .flatMap(c => Option(c.getSchemas).map(_.asScala.toMap))
           .flatMap(_.get(refName))
-        resolved.flatMap(genForSchema(_, openApi))
+        // If the parent has a discriminator, pass it down
+        val parentDisc = Option(openApi.getComponents).flatMap(_.getSchemas.asScala.get(refName)).flatMap { sch =>
+          Option(sch.getDiscriminator).map(d => d.getPropertyName -> refName)
+        }.orElse(forceDiscriminator)
+        resolved.flatMap(genForSchema(_, openApi, parentDisc))
       case obj: ObjectSchema =>
         val props = Option(obj.getProperties).map(_.asScala.toMap).getOrElse(Map.empty)
         val required = Option(obj.getRequired).map(_.asScala.toSet).getOrElse(Set.empty)
         val fields: Seq[(String, Gen[Json])] = props.flatMap { case (name, propSchema) =>
           genForSchema(propSchema, openApi).map(g => name -> g)
         }.toSeq
-        if (fields.isEmpty) Some(Gen.const(Json.obj()))
+        val withDisc = forceDiscriminator match {
+          case Some((discField, discValue)) =>
+            val discGen = Gen.const(discField -> Json.fromString(discValue))
+            fields :+ (discField -> Gen.const(Json.fromString(discValue)))
+          case None => fields
+        }
+        if (withDisc.isEmpty) Some(Gen.const(Json.obj()))
         else Some(Gen.sequence[Seq[(String, Json)], (String, Json)](
-          fields.map { case (k, g) => g.map(j => k -> j) }
+          withDisc.map { case (k, g) => g.map(j => k -> j) }
         ).map(kvs => Json.obj(kvs: _*)))
       case arr: ArraySchema =>
         val itemGen = Option(arr.getItems).flatMap(genForSchema(_, openApi)).getOrElse(Gen.const(Json.Null))
@@ -57,4 +67,3 @@ object ExampleJsonGenerator {
     }
   }
 }
-

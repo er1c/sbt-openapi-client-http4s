@@ -49,52 +49,76 @@ object ModelTestGenerator {
       } else Seq.empty
     }
 
+    // Collect all ADT child names (subtypes of any ADT)
+    val adtChildNames: Set[String] = schemas.values.flatMap { schema =>
+      val oneOf = Option(schema.getOneOf).map(_.asScala).getOrElse(Seq.empty)
+      oneOf.flatMap { s =>
+        val ref = Option(s.get$ref)
+        ref.map { r =>
+          r.substring(r.lastIndexOf('/') + 1)
+        }
+      }
+    }.toSet
+
     schemas.flatMap { case (schemaName, schema) =>
+      println(s"[ModelTestGenerator] Processing schema: $schemaName, type: ${schema.getClass.getSimpleName}")
       val scalaTypeName = ScalaNames.toTypeName(schemaName)
-      // Skip generating tests for CelestialBody and SolarSystem (parent ADTs)
-      if (scalaTypeName == "CelestialBody" || scalaTypeName == "SolarSystem") {
+      // Skip generating tests for CelestialBody, SolarSystem, and any ADT child
+      if (scalaTypeName == "CelestialBody" || scalaTypeName == "SolarSystem" || adtChildNames.contains(schemaName)) {
         None
       } else {
         val subtypes = getSubtypes(schema)
+        println(s"[ModelTestGenerator]  - subtypes for $schemaName: ${subtypes.map(_._1).mkString(", ")}")
         if (subtypes.nonEmpty) {
-          // Generate a test for each subtype, decoding as both subtype and parent
+          // If this is a discriminator-based ADT, get discriminator info
+          val disc = schema.getDiscriminator
+          val discName = Option(disc).map(_.getPropertyName)
+          val mapping = Option(disc).flatMap(d => Option(d.getMapping)).map(_.asScala.toMap).getOrElse(Map.empty[String, String])
           subtypes.flatMap { case (subName, subSchema) =>
             val subTypeName = ScalaNames.toTypeName(subName)
-            val sampleJsonOpt = ExampleJsonGenerator.exampleJsonForSchema(subSchema, openApi)
+            // Use the OpenAPI schema name (subName) as the fallback discriminator value
+            val discValue =
+              mapping.find(_._2.endsWith(subName)).map(_._1)
+                .getOrElse(subName)
+            val sampleJsonOpt = discName match {
+              case Some(dn) => ExampleJsonGenerator.exampleJsonForSchema(subSchema, openApi, Some(dn -> discValue))
+              case None => ExampleJsonGenerator.exampleJsonForSchema(subSchema, openApi)
+            }
             sampleJsonOpt.map { sampleJson =>
               val testClassName = s"${subTypeName}JsonRoundTripSpec"
-              val fileName = s"$testClassName.scala"
-              val testCode = s"""package $testsPackage
-                          |
-                          |import io.circe.parser.*
-                          |import io.circe.syntax.*
-                          |import org.scalatest.flatspec.AnyFlatSpec
-                          |import org.scalatest.matchers.should.Matchers
-                          |
-                          |class $testClassName extends AnyFlatSpec with Matchers {
-                          |  "$subTypeName".should("round-trip JSON serialize/deserialize as subtype") in {
-                          |    val jsonStr = \"\"\"${sampleJson}\"\"\"
-                          |    val decoded = decode[$subTypeName](jsonStr)
-                          |    decoded.isRight shouldBe true
-                          |    val model = decoded.toOption.get
-                          |    val encoded = model.asJson.noSpaces
-                          |    val decodedAgain = decode[$subTypeName](encoded)
-                          |    decodedAgain.isRight shouldBe true
-                          |    decodedAgain.toOption.get shouldBe model
-                          |  }
-                          |
-                          |  "$subTypeName as $scalaTypeName".should("round-trip JSON serialize/deserialize as parent type") in {
-                          |    val jsonStr = \"\"\"${sampleJson}\"\"\"
-                          |    val decoded = decode[$scalaTypeName](jsonStr)
-                          |    decoded.isRight shouldBe true
-                          |    val model = decoded.toOption.get
-                          |    val encoded = model.asJson.noSpaces
-                          |    val decodedAgain = decode[$scalaTypeName](encoded)
-                          |    decodedAgain.isRight shouldBe true
-                          |    decodedAgain.toOption.get shouldBe model
-                          |  }
-                          |}
-                          |""".stripMargin
+              val fileName = testClassName
+              val testCode = s"""// Discriminator value used: $discValue
+package $testsPackage
+
+import io.circe.parser.*
+import io.circe.syntax.*
+import org.scalatest.flatspec.AnyFlatSpec
+import org.scalatest.matchers.should.Matchers
+
+class $testClassName extends AnyFlatSpec with Matchers {
+  \"$subTypeName\".should(\"round-trip JSON serialize/deserialize as subtype\") in {
+    val jsonStr = \"\"\"${sampleJson}\"\"\"
+    val decoded = decode[$subTypeName](jsonStr)
+    decoded.isRight shouldBe true
+    val model = decoded.toOption.get
+    val encoded = model.asJson.noSpaces
+    val decodedAgain = decode[$subTypeName](encoded)
+    decodedAgain.isRight shouldBe true
+    decodedAgain.toOption.get shouldBe model
+  }
+
+  \"$subTypeName as $scalaTypeName\".should(\"round-trip JSON serialize/deserialize as parent type\") in {
+    val jsonStr = \"\"\"${sampleJson}\"\"\"
+    val decoded = decode[$scalaTypeName](jsonStr)
+    decoded.isRight shouldBe true
+    val model = decoded.toOption.get
+    val encoded = model.asJson.noSpaces
+    val decodedAgain = decode[$scalaTypeName](encoded)
+    decodedAgain.isRight shouldBe true
+    decodedAgain.toOption.get shouldBe model
+  }
+}
+"""
               fileName -> testCode
             }
           }.toMap
@@ -103,7 +127,7 @@ object ModelTestGenerator {
           val sampleJsonOpt = ExampleJsonGenerator.exampleJsonForSchema(schema, openApi)
           sampleJsonOpt.map { sampleJson =>
             val testClassName = s"${scalaTypeName}JsonRoundTripSpec"
-            val fileName = s"$testClassName.scala"
+            val fileName = testClassName // Do not append .scala here
             val testCode = s"""package $testsPackage
                           |
                           |import io.circe.parser.*
