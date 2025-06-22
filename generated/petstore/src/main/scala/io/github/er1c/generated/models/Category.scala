@@ -29,7 +29,7 @@ object CategoryName {
 case class Category(
     id: Option[CategoryId],
     name: Option[CategoryName]
-) derives Encoder.AsObject, Decoder
+)
 
 object Category:
   given codec: Codec.AsObject[Category] = deriveCodec[Category]

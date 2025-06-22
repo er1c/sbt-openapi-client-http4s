@@ -29,7 +29,7 @@ object ErrorMessage {
 case class Error(
     code: ErrorCode,
     message: ErrorMessage
-) derives Encoder.AsObject, Decoder
+)
 
 object Error:
   given codec: Codec.AsObject[Error] = deriveCodec[Error]

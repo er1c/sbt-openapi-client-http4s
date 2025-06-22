@@ -42,7 +42,7 @@ case class ApiResponse(
     code: Option[ApiResponseCode],
     `type`: Option[ApiResponseType],
     message: Option[ApiResponseMessage]
-) derives Encoder.AsObject, Decoder
+)
 
 object ApiResponse:
   given codec: Codec.AsObject[ApiResponse] = deriveCodec[ApiResponse]

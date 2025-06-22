@@ -31,6 +31,11 @@ class ClientProjectGenerator(
 
     // Generate models and operations into src/main/scala
     ModelGenerator.generateModelFiles(openApi, basePackage, sourceDir)
+
+    // Generate model round-trip tests into src/test/scala
+    val testDir = new File(targetDirectory, "src/test/scala")
+    Files.createDirectories(testDir.toPath)
+    ModelTestGenerator.generateModelTestFiles(openApi, basePackage, testDir)
   }
 
   private def createDirectoryStructure(): Unit = {

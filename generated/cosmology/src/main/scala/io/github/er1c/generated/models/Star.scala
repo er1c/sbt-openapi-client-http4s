@@ -5,7 +5,7 @@ import io.circe.*
 import io.circe.generic.semiauto.*
 import io.circe.syntax.*
 
-sealed trait Star derives Encoder.AsObject, Decoder {
+sealed trait Star {
   def `type`: String // The discriminator property
 }
 
@@ -13,24 +13,24 @@ import cats.syntax.functor.*
 import io.circe.*
 import io.circe.generic.semiauto.*
 
-opaque type RedGiantHeliumfusion = String
+opaque type RedGiantHeliumFusion = String
 
-object RedGiantHeliumfusion {
-  def apply(value: String): RedGiantHeliumfusion = value
+object RedGiantHeliumFusion {
+  def apply(value: String): RedGiantHeliumFusion = value
 
-  extension (t: RedGiantHeliumfusion)
+  extension (t: RedGiantHeliumFusion)
     def value: String = t
 
-  given Encoder[RedGiantHeliumfusion] = Encoder.encodeString.contramap(_.value)
-  given Decoder[RedGiantHeliumfusion] = Decoder.decodeString.map(RedGiantHeliumfusion.apply)
+  given Encoder[RedGiantHeliumFusion] = Encoder.encodeString.contramap(_.value)
+  given Decoder[RedGiantHeliumFusion] = Decoder.decodeString.map(RedGiantHeliumFusion.apply)
 }
 
 
 // RedGiant case class
 final case class RedGiant(
-  heliumfusion: RedGiantHeliumfusion,
+  heliumFusion: RedGiantHeliumFusion,
   `type`: String
-) extends Star derives Encoder.AsObject, Decoder
+) extends Star
 
 object RedGiant {
   given codec: Codec.AsObject[RedGiant] = deriveCodec[RedGiant]
@@ -45,24 +45,24 @@ import cats.syntax.functor.*
 import io.circe.*
 import io.circe.generic.semiauto.*
 
-opaque type WhiteDwarfCarboninfusion = String
+opaque type WhiteDwarfCarbonInfusion = String
 
-object WhiteDwarfCarboninfusion {
-  def apply(value: String): WhiteDwarfCarboninfusion = value
+object WhiteDwarfCarbonInfusion {
+  def apply(value: String): WhiteDwarfCarbonInfusion = value
 
-  extension (t: WhiteDwarfCarboninfusion)
+  extension (t: WhiteDwarfCarbonInfusion)
     def value: String = t
 
-  given Encoder[WhiteDwarfCarboninfusion] = Encoder.encodeString.contramap(_.value)
-  given Decoder[WhiteDwarfCarboninfusion] = Decoder.decodeString.map(WhiteDwarfCarboninfusion.apply)
+  given Encoder[WhiteDwarfCarbonInfusion] = Encoder.encodeString.contramap(_.value)
+  given Decoder[WhiteDwarfCarbonInfusion] = Decoder.decodeString.map(WhiteDwarfCarbonInfusion.apply)
 }
 
 
 // WhiteDwarf case class
 final case class WhiteDwarf(
-  carboninfusion: WhiteDwarfCarboninfusion,
+  carbonInfusion: WhiteDwarfCarbonInfusion,
   `type`: String
-) extends Star derives Encoder.AsObject, Decoder
+) extends Star
 
 object WhiteDwarf {
   given codec: Codec.AsObject[WhiteDwarf] = deriveCodec[WhiteDwarf]
@@ -94,7 +94,7 @@ object SupernovaPhase {
 final case class Supernova(
   phase: SupernovaPhase,
   `type`: String
-) extends Star derives Encoder.AsObject, Decoder
+) extends Star
 
 object Supernova {
   given codec: Codec.AsObject[Supernova] = deriveCodec[Supernova]

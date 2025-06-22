@@ -41,12 +41,12 @@ object PetStatus {
 case class Pet(
     name: PetName,
     tags: Option[List[Tag]],
-    photourls: List[String],
+    photoUrls: List[String],
     id: Option[PetId],
 /** pet status in the store */
     status: Option[PetStatus],
     category: Option[Category]
-) derives Encoder.AsObject, Decoder
+)
 
 object Pet:
   given codec: Codec.AsObject[Pet] = deriveCodec[Pet]

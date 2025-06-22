@@ -25,28 +25,40 @@ object UserUsername {
   given Decoder[UserUsername] = Decoder.decodeString.map(UserUsername.apply)
 }
 
-opaque type UserFirstname = String
+opaque type UserUserStatus = Int
 
-object UserFirstname {
-  def apply(value: String): UserFirstname = value
+object UserUserStatus {
+  def apply(value: Int): UserUserStatus = value
 
-  extension (t: UserFirstname)
-    def value: String = t
+  extension (t: UserUserStatus)
+    def value: Int = t
 
-  given Encoder[UserFirstname] = Encoder.encodeString.contramap(_.value)
-  given Decoder[UserFirstname] = Decoder.decodeString.map(UserFirstname.apply)
+  given Encoder[UserUserStatus] = Encoder.encodeInt.contramap(_.value)
+  given Decoder[UserUserStatus] = Decoder.decodeInt.map(UserUserStatus.apply)
 }
 
-opaque type UserLastname = String
+opaque type UserLastName = String
 
-object UserLastname {
-  def apply(value: String): UserLastname = value
+object UserLastName {
+  def apply(value: String): UserLastName = value
 
-  extension (t: UserLastname)
+  extension (t: UserLastName)
     def value: String = t
 
-  given Encoder[UserLastname] = Encoder.encodeString.contramap(_.value)
-  given Decoder[UserLastname] = Decoder.decodeString.map(UserLastname.apply)
+  given Encoder[UserLastName] = Encoder.encodeString.contramap(_.value)
+  given Decoder[UserLastName] = Decoder.decodeString.map(UserLastName.apply)
+}
+
+opaque type UserFirstName = String
+
+object UserFirstName {
+  def apply(value: String): UserFirstName = value
+
+  extension (t: UserFirstName)
+    def value: String = t
+
+  given Encoder[UserFirstName] = Encoder.encodeString.contramap(_.value)
+  given Decoder[UserFirstName] = Decoder.decodeString.map(UserFirstName.apply)
 }
 
 opaque type UserId = Long
@@ -59,18 +71,6 @@ object UserId {
 
   given Encoder[UserId] = Encoder.encodeLong.contramap(_.value)
   given Decoder[UserId] = Decoder.decodeLong.map(UserId.apply)
-}
-
-opaque type UserUserstatus = Int
-
-object UserUserstatus {
-  def apply(value: Int): UserUserstatus = value
-
-  extension (t: UserUserstatus)
-    def value: Int = t
-
-  given Encoder[UserUserstatus] = Encoder.encodeInt.contramap(_.value)
-  given Decoder[UserUserstatus] = Decoder.decodeInt.map(UserUserstatus.apply)
 }
 
 opaque type UserPhone = String
@@ -101,14 +101,14 @@ object UserPassword {
 case class User(
     email: Option[UserEmail],
     username: Option[UserUsername],
-    firstname: Option[UserFirstname],
-    lastname: Option[UserLastname],
-    id: Option[UserId],
 /** User Status */
-    userstatus: Option[UserUserstatus],
+    userStatus: Option[UserUserStatus],
+    lastName: Option[UserLastName],
+    firstName: Option[UserFirstName],
+    id: Option[UserId],
     phone: Option[UserPhone],
     password: Option[UserPassword]
-) derives Encoder.AsObject, Decoder
+)
 
 object User:
   given codec: Codec.AsObject[User] = deriveCodec[User]

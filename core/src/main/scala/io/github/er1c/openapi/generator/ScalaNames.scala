@@ -17,10 +17,12 @@ object ScalaNames {
    */
   def toFieldName(name: String): String = {
     if (name == null || name.isEmpty) "unnamedField"
-    else {
+    else if (name.contains("_") || name.exists(!_.isLetterOrDigit)) {
       val parts = name.split("[^a-zA-Z0-9]").filter(_.nonEmpty)
       if (parts.isEmpty) "unnamedField"
       else parts.head.toLowerCase + parts.tail.map(_.capitalize).mkString
+    } else {
+      name.head.toLower + name.tail
     }
   }
 
@@ -47,4 +49,3 @@ object ScalaNames {
     "val", "var", "while", "with", "yield", "_", ":", "=", "=>", "<-", "<:", "<%", ">:", "#", "@"
   )
 }
-

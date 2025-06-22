@@ -6,6 +6,7 @@ import io.circe.generic.auto.*
 import io.circe.generic.semiauto.*
 import io.circe.syntax.*
 import java.util.UUID
+import scala.util.Try
 
 sealed trait CelestialBody {
   def mass: CelestialBodyMass
@@ -37,7 +38,7 @@ object MoonUuid {
     def value: UUID = t
 
   given Encoder[MoonUuid] = Encoder.encodeString.contramap(_.toString)
-  given Decoder[MoonUuid] = Decoder.decodeString.map(s => MoonUuid.apply(s.asInstanceOf[UUID])) // FIXME: May not work
+  given Decoder[MoonUuid] = Decoder.decodeString.emapTry(str => Try(UUID.fromString(str)).map(MoonUuid.apply))
 }
 
 
@@ -45,7 +46,7 @@ object MoonUuid {
 final case class Moon(
   mass: CelestialBodyMass,
   uuid: MoonUuid
-) extends CelestialBody derives Encoder.AsObject, Decoder
+) extends CelestialBody
 
 object Moon {
   given codec: Codec.AsObject[Moon] = deriveCodec[Moon]

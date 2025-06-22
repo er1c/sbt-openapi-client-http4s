@@ -2,6 +2,25 @@ package io.github.er1c.generated.models
 import io.circe.generic.semiauto.*
 import io.circe.{Codec, Decoder, Encoder}
 import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
+import scala.util.Try
+opaque type OrderShipDate = OffsetDateTime
+
+object OrderShipDate {
+  def apply(value: OffsetDateTime): OrderShipDate = value
+
+  extension (t: OrderShipDate)
+    def value: OffsetDateTime = t
+
+  given Encoder[OrderShipDate] = Encoder.encodeString.contramap(_.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
+  given Decoder[OrderShipDate] = Decoder.decodeString.emap { str =>
+  Try(OffsetDateTime.parse(str, DateTimeFormatter.ISO_OFFSET_DATE_TIME))
+    .toEither
+    .left.map(_.getMessage)
+    .map(OrderShipDate.apply)
+}
+}
+
 opaque type OrderQuantity = Int
 
 object OrderQuantity {
@@ -14,16 +33,16 @@ object OrderQuantity {
   given Decoder[OrderQuantity] = Decoder.decodeInt.map(OrderQuantity.apply)
 }
 
-opaque type OrderPetid = Long
+opaque type OrderPetId = Long
 
-object OrderPetid {
-  def apply(value: Long): OrderPetid = value
+object OrderPetId {
+  def apply(value: Long): OrderPetId = value
 
-  extension (t: OrderPetid)
+  extension (t: OrderPetId)
     def value: Long = t
 
-  given Encoder[OrderPetid] = Encoder.encodeLong.contramap(_.value)
-  given Decoder[OrderPetid] = Decoder.decodeLong.map(OrderPetid.apply)
+  given Encoder[OrderPetId] = Encoder.encodeLong.contramap(_.value)
+  given Decoder[OrderPetId] = Decoder.decodeLong.map(OrderPetId.apply)
 }
 
 opaque type OrderId = Long
@@ -62,28 +81,16 @@ object OrderStatus {
   given Decoder[OrderStatus] = Decoder.decodeString.map(OrderStatus.apply)
 }
 
-opaque type OrderShipdate = OffsetDateTime
-
-object OrderShipdate {
-  def apply(value: OffsetDateTime): OrderShipdate = value
-
-  extension (t: OrderShipdate)
-    def value: OffsetDateTime = t
-
-  given Encoder[OrderShipdate] = Encoder.encodeString.contramap(_.toString)
-  given Decoder[OrderShipdate] = Decoder.decodeString.map(s => OrderShipdate.apply(s.asInstanceOf[OffsetDateTime])) // FIXME: May not work
-}
-
 
 case class Order(
+    shipDate: Option[OrderShipDate],
     quantity: Option[OrderQuantity],
-    petid: Option[OrderPetid],
+    petId: Option[OrderPetId],
     id: Option[OrderId],
     complete: Option[OrderComplete],
 /** Order Status */
-    status: Option[OrderStatus],
-    shipdate: Option[OrderShipdate]
-) derives Encoder.AsObject, Decoder
+    status: Option[OrderStatus]
+)
 
 object Order:
   given codec: Codec.AsObject[Order] = deriveCodec[Order]

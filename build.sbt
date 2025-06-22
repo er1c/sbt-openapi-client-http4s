@@ -20,7 +20,8 @@ lazy val commonSettings = Seq(
     "-Xfatal-warnings"
   ),
   libraryDependencies ++= Seq(
-    "org.scalatest" %% "scalatest" % "3.2.17" % Test
+    "org.scalatest" %% "scalatest" % "3.2.17" % Test,
+    "org.scalacheck" %% "scalacheck" % "1.17.0",
   )
 )
 

@@ -168,7 +168,7 @@ object $scalaTypeName:
 
           val adtCode = s"""$allImports
 
-sealed trait $scalaTypeName derives Encoder.AsObject, Decoder {
+sealed trait $scalaTypeName {
   def $discriminatorProperty: String // The discriminator property
 }
 
@@ -393,29 +393,29 @@ object $scalaTypeName {
       case "Float" | "Double" | "BigDecimal" =>
         imports += "import scala.math.BigDecimal"
         (s"Encoder.encodeBigDecimal.contramap(_.value)", s"Decoder.decodeBigDecimal.map($typeName.apply)")
-      case "java.time.LocalDate" =>
+      case "java.time.LocalDate" | "LocalDate" =>
         imports += "import java.time.LocalDate"
         imports += "import java.time.format.DateTimeFormatter"
         imports += "import scala.util.Try"
         (s"Encoder.encodeString.contramap(_.format(DateTimeFormatter.ISO_LOCAL_DATE))",
-         s"Decoder.decodeString.emapTry(str => Try(LocalDate.parse(str, DateTimeFormatter.ISO_LOCAL_DATE)).map($typeName.apply).toEither.left.map(_.getMessage))")
-      case "java.time.OffsetDateTime" =>
+         s"Decoder.decodeString.emapTry(str => Try(LocalDate.parse(str, DateTimeFormatter.ISO_LOCAL_DATE)).map($typeName.apply))")
+      case "java.time.OffsetDateTime" | "OffsetDateTime" =>
         imports += "import java.time.OffsetDateTime"
         imports += "import java.time.format.DateTimeFormatter"
         imports += "import scala.util.Try"
         (s"Encoder.encodeString.contramap(_.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))",
-         s"Decoder.decodeString.emapTry(str => Try(OffsetDateTime.parse(str, DateTimeFormatter.ISO_OFFSET_DATE_TIME)).map($typeName.apply).toEither.left.map(_.getMessage))")
-      case "java.util.UUID" =>
+         s"Decoder.decodeString.emap { str =>\n  Try(OffsetDateTime.parse(str, DateTimeFormatter.ISO_OFFSET_DATE_TIME))\n    .toEither\n    .left.map(_.getMessage)\n    .map($typeName.apply)\n}")
+      case "java.util.UUID" | "UUID" =>
         imports += "import java.util.UUID"
         imports += "import scala.util.Try"
         (s"Encoder.encodeString.contramap(_.toString)",
-         s"Decoder.decodeString.emapTry(str => Try(UUID.fromString(str)).map($typeName.apply).toEither.left.map(_.getMessage))")
+         s"Decoder.decodeString.emapTry(str => Try(UUID.fromString(str)).map($typeName.apply))")
       case "Array[Byte]" => // For BinarySchema, often Base64 encoded string in JSON
         imports += "import java.util.Base64"
         (s"Encoder.encodeString.contramap(bytes => Base64.getEncoder.encodeToString(bytes))",
          s"Decoder.decodeString.map(str => $typeName.apply(Base64.getDecoder.decode(str)))")
-      case _ =>
-        println(s"Warning: No specific Circe encoder/decoder for opaque type $typeName with underlying $finalUnderlyingType.")
+      case other =>
+        println(s"Warning: No specific Circe encoder/decoder $other for opaque type $typeName with underlying $finalUnderlyingType.")
         (s"Encoder.encodeString.contramap(_.toString)", s"Decoder.decodeString.map(s => $typeName.apply(s.asInstanceOf[$finalUnderlyingType])) // FIXME: May not work")
     }
 
@@ -545,7 +545,7 @@ object $typeName {
     val extendsStr = sealedTraitParentOpt.map(parent => s" extends $parent").getOrElse("")
 
     if (combinedProperties.isEmpty) {
-      s"""case class $typeName()$extendsStr derives Encoder.AsObject, Decoder
+      s"""case class $typeName()$extendsStr
         |
         |object $typeName {}""".stripMargin
     } else {
@@ -554,7 +554,7 @@ object $typeName {
       s"""$opaqueTypesStr
 case class $typeName(
 ${fieldsStr.split("\n").map(l => if(l.trim.startsWith("/**")) l else "  " + l).mkString("\n")}
-)$extendsStr derives Encoder.AsObject, Decoder
+)$extendsStr
 
 object $typeName:
   given codec: Codec.AsObject[$typeName] = deriveCodec[$typeName]${if (!extendsStr.isEmpty) {
@@ -822,7 +822,7 @@ $opaqueTypesStr
 // $typeName case class
 final case class $typeName(
 $fieldsStr
-)$extendsStr derives Encoder.AsObject, Decoder
+)$extendsStr
 
 object $typeName {
   given codec: Codec.AsObject[$typeName] = deriveCodec[$typeName]${if (!extendsStr.isEmpty) {

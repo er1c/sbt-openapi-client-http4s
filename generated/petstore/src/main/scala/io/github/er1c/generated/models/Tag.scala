@@ -29,7 +29,7 @@ object TagName {
 case class Tag(
     id: Option[TagId],
     name: Option[TagName]
-) derives Encoder.AsObject, Decoder
+)
 
 object Tag:
   given codec: Codec.AsObject[Tag] = deriveCodec[Tag]

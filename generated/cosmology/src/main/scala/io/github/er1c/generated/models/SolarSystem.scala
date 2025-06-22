@@ -4,7 +4,7 @@ import io.circe.{Codec, Decoder, Encoder}
 
 case class SolarSystem(
     galaxy: Galaxy
-) derives Encoder.AsObject, Decoder
+)
 
 object SolarSystem:
   given codec: Codec.AsObject[SolarSystem] = deriveCodec[SolarSystem]

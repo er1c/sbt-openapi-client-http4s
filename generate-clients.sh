@@ -14,7 +14,7 @@ sbt "core/runMain io.github.er1c.openapi.cli.Main \
   --fullProject"
 
 echo "Building Petstore client..."
-(cd generated/petstore && sbt compile)
+(cd generated/petstore && sbt test)
 
 rm -rf generated/cosmology
 echo "Generating Cosmology client..."
@@ -26,6 +26,6 @@ sbt "core/runMain io.github.er1c.openapi.cli.Main \
   --fullProject"
 
 echo "Building Cosmology client..."
-(cd generated/cosmology && sbt compile)
+(cd generated/cosmology && sbt test)
 
 echo "All clients generated and built successfully!"

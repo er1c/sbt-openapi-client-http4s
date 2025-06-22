@@ -7,6 +7,7 @@ import io.circe.generic.semiauto.*
 import io.circe.syntax.*
 import java.util.UUID
 import scala.math.BigDecimal
+import scala.util.Try
 
 sealed trait Galaxy
 
@@ -31,7 +32,7 @@ object EllipticalGalaxyEccentricity {
 final case class EllipticalGalaxy(
   eccentricity: EllipticalGalaxyEccentricity,
   etcetra: Option[Json] = None
-) extends Galaxy derives Encoder.AsObject, Decoder
+) extends Galaxy
 
 object EllipticalGalaxy {
   given codec: Codec.AsObject[EllipticalGalaxy] = deriveCodec[EllipticalGalaxy]
@@ -55,27 +56,27 @@ object SpiralGalaxyUuid {
     def value: UUID = t
 
   given Encoder[SpiralGalaxyUuid] = Encoder.encodeString.contramap(_.toString)
-  given Decoder[SpiralGalaxyUuid] = Decoder.decodeString.map(s => SpiralGalaxyUuid.apply(s.asInstanceOf[UUID])) // FIXME: May not work
+  given Decoder[SpiralGalaxyUuid] = Decoder.decodeString.emapTry(str => Try(UUID.fromString(str)).map(SpiralGalaxyUuid.apply))
 }
 
-opaque type SpiralGalaxyArmcount = Int
+opaque type SpiralGalaxyArmCount = Int
 
-object SpiralGalaxyArmcount {
-  def apply(value: Int): SpiralGalaxyArmcount = value
+object SpiralGalaxyArmCount {
+  def apply(value: Int): SpiralGalaxyArmCount = value
 
-  extension (t: SpiralGalaxyArmcount)
+  extension (t: SpiralGalaxyArmCount)
     def value: Int = t
 
-  given Encoder[SpiralGalaxyArmcount] = Encoder.encodeInt.contramap(_.value)
-  given Decoder[SpiralGalaxyArmcount] = Decoder.decodeInt.map(SpiralGalaxyArmcount.apply)
+  given Encoder[SpiralGalaxyArmCount] = Encoder.encodeInt.contramap(_.value)
+  given Decoder[SpiralGalaxyArmCount] = Decoder.decodeInt.map(SpiralGalaxyArmCount.apply)
 }
 
 
 // SpiralGalaxy case class
 final case class SpiralGalaxy(
   uuid: Option[SpiralGalaxyUuid] = None,
-  armcount: SpiralGalaxyArmcount
-) extends Galaxy derives Encoder.AsObject, Decoder
+  armCount: SpiralGalaxyArmCount
+) extends Galaxy
 
 object SpiralGalaxy {
   given codec: Codec.AsObject[SpiralGalaxy] = deriveCodec[SpiralGalaxy]
